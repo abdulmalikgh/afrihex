@@ -1,0 +1,3 @@
+display_name: AfriHex Mobile
+short_description: Build AfriHex mobile app features with Expo SDK 57, AfriHex API, and brand rules.
+default_prompt: Use the AfriHex Mobile skill to implement or review this app change against the project API, design system, and Expo SDK 57 rules.
