@@ -5,7 +5,19 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "scheme": "afrihex",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#111814",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 140
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true
     },
