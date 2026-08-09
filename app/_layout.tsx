@@ -16,6 +16,7 @@ import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { colors } from '../src/constants/colors';
+import { AuthSessionProvider } from '../src/features/authentication/context/AuthSessionProvider';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -58,22 +59,27 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <SafeAreaProvider>
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerStyle: { backgroundColor: colors.surface },
-            headerTintColor: colors.text,
-            headerShadowVisible: false,
-            contentStyle: { backgroundColor: colors.surface },
-          }}
-        >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="auth/login" options={{ title: 'Login', presentation: 'modal' }} />
-          <Stack.Screen name="auth/register" options={{ title: 'Register', presentation: 'modal' }} />
-          <Stack.Screen name="profile/new" options={{ title: 'Create address link' }} />
-        </Stack>
-      </SafeAreaProvider>
+      <AuthSessionProvider>
+        <SafeAreaProvider>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: colors.surface },
+              headerTintColor: colors.text,
+              headerShadowVisible: false,
+              contentStyle: { backgroundColor: colors.surface },
+            }}
+          >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+            <Stack.Screen name="auth/register" options={{ headerShown: false }} />
+            <Stack.Screen name="auth/forgot-password" options={{ headerShown: false }} />
+            <Stack.Screen name="auth/reset-password" options={{ headerShown: false }} />
+            <Stack.Screen name="auth/callback" options={{ title: 'Signing in', presentation: 'modal' }} />
+            <Stack.Screen name="account/change-password" options={{ headerShown: false }} />
+          </Stack>
+        </SafeAreaProvider>
+      </AuthSessionProvider>
     </QueryClientProvider>
   );
 }
