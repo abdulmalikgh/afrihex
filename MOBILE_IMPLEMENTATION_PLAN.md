@@ -2,7 +2,8 @@
 
 This plan covers the React Native mobile app implementation for the AfriHex API scope in
 [`mobile-api.md`](./mobile-api.md). The mobile app should focus on Search, Navigation,
-Certificates, and the account/profile flows needed to support those features.
+Certificates, and the optional account flows that improve those features without blocking
+anonymous usage.
 
 ## 1. Project Foundation
 
@@ -15,6 +16,7 @@ Recommended installs:
 npx expo install expo-router react-native-safe-area-context react-native-screens
 npx expo install expo-font expo-splash-screen
 npx expo install expo-secure-store
+npx expo install expo-auth-session expo-crypto expo-web-browser
 npx expo install expo-location
 npx expo install expo-haptics
 npx expo install expo-linear-gradient
@@ -33,12 +35,11 @@ app/
     map.tsx
     directions.tsx
     certificates.tsx
-    profile.tsx
+    account.tsx
   auth/
     login.tsx
     register.tsx
-  profile/
-    new.tsx
+    callback.tsx
 
 src/
   api/
@@ -122,7 +123,7 @@ src/api/auth.ts
 src/api/search.ts
 src/api/navigation.ts
 src/api/certificates.ts
-src/api/profile.ts
+src/api/account.ts
 ```
 
 Base configuration:
@@ -137,6 +138,12 @@ Use `expo-secure-store` for the API token returned from:
 - `POST /v2/auth/login`
 - `POST /v2/auth/register`
 - `POST /v2/auth/google/exchange`
+
+Google auth starts in a system auth browser session against the backend-owned
+`GET /v2/auth/google` endpoint. The mobile app should receive a one-time `code` on the
+`afrihex://auth/callback` deep link and exchange it with
+`POST /v2/auth/google/exchange`. The Google client secret and OAuth callback ownership stay
+on backend infrastructure, never inside the mobile app.
 
 Use React Query for:
 
@@ -180,7 +187,7 @@ Find
 Map
 Directions
 Verify
-Profile
+Account
 ```
 
 Routes:
@@ -190,10 +197,10 @@ Routes:
 /map
 /directions
 /certificates
-/profile
+/account
 /auth/login
 /auth/register
-/profile/new
+/auth/callback
 ```
 
 This maps to the mobile API scope while avoiding web-only admin, pricing, dashboard, and
@@ -211,14 +218,32 @@ marketing pages.
 - Build shared components.
 - Replace the starter `App.tsx` flow with the router entry.
 
-### Phase 2: Auth
+### Phase 2: Session Infrastructure + Optional Account
 
-- Login screen.
-- Register screen.
-- Token storage in SecureStore.
+Auth is an upgrade path, not an app gate. The core Search, public Directions,
+Certificates, reverse lookup, nearby, and arrival telemetry flows must work anonymously.
+
+Build:
+
+- Account tab with anonymous and authenticated states.
+- Login screen using `POST /v2/auth/login`.
+- Register screen using `POST /v2/auth/register`.
+- Google sign-in using backend `GET /v2/auth/google` plus
+  `POST /v2/auth/google/exchange`.
+- `afrihex://auth/callback` handling for the one-time Google code.
+- Token storage in `expo-secure-store`.
+- Central auth session provider so screens do not read SecureStore directly.
+- API client that sends `X-API-Key` only when a token exists.
 - Current user fetch via `GET /v2/me`.
 - Usage summary via `GET /v2/usage`.
-- Logout.
+- Logout that clears SecureStore and authenticated query cache.
+
+Use soft prompts instead of hard auth walls:
+
+- Prompt after public rate-limit errors.
+- Prompt before authenticated-only recent searches.
+- Prompt when a user wants full route details from `/v2/route`.
+- Prompt from Account for plan/usage/history.
 
 Do not force logout based on `user.expires_at`; `mobile-api.md` states that this is the
 subscription expiry, not the session expiry.
@@ -310,19 +335,15 @@ Features:
 - Show issuer and issued date.
 - Download/share PDF.
 
-### Phase 7: Profile / Address Link
+### Phase 7: Deferred Account Features
 
-Route:
+Address-link creation is deferred until the backend provides a mobile contract for:
 
-- `/profile/new`
-
-Features:
-
-- Create address profile link.
-- Collect handle, display name, phone, destination, label, and notes.
-- Resolve destination through lookup/search.
-- Show generated link.
-- Copy/share actions.
+- endpoint URL and method
+- authenticated request body
+- response shape
+- generated link format
+- update/delete behavior, if supported
 
 ## 6. Testing Plan
 
@@ -357,7 +378,6 @@ search address
 reverse lookup
 create route
 verify certificate
-create profile link
 ```
 
 ## 7. Build And Runtime Strategy
@@ -413,7 +433,7 @@ The MVP should ship in this order:
 2. Reverse lookup.
 3. Directions.
 4. Certificate verification.
-5. Login/register/profile.
+5. Login/register/account.
 6. MapLibre polish.
 
 This sequence produces a useful mobile app quickly, then invests in the map experience once
