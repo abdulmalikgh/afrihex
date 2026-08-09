@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
+  View,
   type GestureResponderEvent,
   type PressableProps,
 } from 'react-native';
@@ -17,6 +18,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type AppButtonProps = Omit<PressableProps, 'children' | 'style'> & {
   children: ReactNode;
   variant?: ButtonVariant;
+  icon?: ReactNode;
   loading?: boolean;
   disabled?: boolean;
   onPress?: (event: GestureResponderEvent) => void;
@@ -25,6 +27,7 @@ type AppButtonProps = Omit<PressableProps, 'children' | 'style'> & {
 export function AppButton({
   children,
   variant = 'primary',
+  icon,
   loading = false,
   disabled = false,
   accessibilityRole = 'button',
@@ -46,9 +49,12 @@ export function AppButton({
       {loading ? (
         <ActivityIndicator color={variant === 'primary' || variant === 'danger' ? colors.white : colors.text} />
       ) : (
-        <AppText variant="bodyStrong" tone={variant === 'primary' || variant === 'danger' ? 'default' : 'primary'}>
-          {children}
-        </AppText>
+        <View style={styles.content}>
+          {icon ? <View style={styles.icon}>{icon}</View> : null}
+          <AppText variant="bodyStrong" tone={variant === 'danger' ? 'default' : 'default'}>
+            {children}
+          </AppText>
+        </View>
       )}
     </Pressable>
   );
@@ -69,6 +75,18 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.5,
+  },
+  content: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  icon: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

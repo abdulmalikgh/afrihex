@@ -16,6 +16,13 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 140
         }
+      ],
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow AfriHex to use your location to find your current GPS code."
+        }
       ]
     ],
     "ios": {

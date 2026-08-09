@@ -5,6 +5,7 @@ export { BottomSheet } from './BottomSheet';
 export { CodeChip } from './CodeChip';
 export { EmptyState } from './EmptyState';
 export { ErrorBanner } from './ErrorBanner';
+export { GoogleIcon } from './GoogleIcon';
 export { LoadingState } from './LoadingState';
 export { ResultCard } from './ResultCard';
 export { Screen } from './Screen';
