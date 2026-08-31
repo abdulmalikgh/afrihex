@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Fingerprint, FileText, MapPin, PenLine, ShieldCheck } from 'lucide-react-native';
+import { ArrowLeft, Fingerprint, FileText, MapPin, PenLine, ShieldCheck } from 'lucide-react-native';
 
 import { AppButton, AppText, LoadingState, Screen, Toast } from '../../../components';
 import { colors } from '../../../constants/colors';
@@ -36,6 +36,7 @@ const CERTIFICATE_DISCLAIMER =
 export function CertificateDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const certificateId = typeof id === 'string' ? id : '';
+  const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
   const { status, verification, detail, isDetailLoading, detailUnavailableReason } =
     useCertificateDetail(certificateId);
@@ -54,16 +55,21 @@ export function CertificateDetailScreen() {
 
   return (
     <Screen scroll contentStyle={styles.content}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        hitSlop={10}
+        onPress={() => router.back()}
+        style={styles.backButton}
+      >
+        <ArrowLeft color={colors.text} size={24} />
+      </Pressable>
+
       <View style={styles.header}>
-        <AppText variant="overline" tone="primary" align="center">
-          Signed address certificate
-        </AppText>
-        <AppText variant="title" align="center">
-          Certificate verification
-        </AppText>
-        <AppText variant="caption" tone="muted" align="center">
-          This checks the certificate&apos;s signature against the issuer&apos;s public key and its
-          revocation status. Anyone can verify a certificate — no account needed.
+        <AppText variant="title">Certificate</AppText>
+        <AppText variant="body" tone="muted">
+          We check the signature against the issuer&apos;s public key and its revocation status.
+          Anyone can check a certificate — no account needed.
         </AppText>
       </View>
 
@@ -239,7 +245,13 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: spacing.sm,
-    paddingTop: spacing.md,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -spacing.sm,
   },
   notice: {
     gap: spacing.md,

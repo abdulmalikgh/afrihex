@@ -69,6 +69,11 @@ export default function RootLayout() {
                 headerStyle: { backgroundColor: colors.surface },
                 headerTintColor: colors.text,
                 headerShadowVisible: false,
+                // Chevron only. The default label is the previous route's name,
+                // which surfaces router internals — a screen pushed from the tab
+                // bar reads "(tabs)". Set here rather than per screen so no
+                // future route can reintroduce it.
+                headerBackButtonDisplayMode: 'minimal',
                 contentStyle: { backgroundColor: colors.surface },
               }}
             >
@@ -79,7 +84,10 @@ export default function RootLayout() {
               <Stack.Screen name="auth/reset-password" options={{ headerShown: false }} />
               <Stack.Screen name="auth/callback" options={{ title: 'Signing in', presentation: 'modal' }} />
               <Stack.Screen name="account/change-password" options={{ headerShown: false }} />
-              <Stack.Screen name="certificate/[id]" options={{ title: 'Certificate' }} />
+              {/* Draws its own back button and heading, matching the Verify tab
+                  it is pushed from — a native bar above that heading would title
+                  the same screen twice. */}
+              <Stack.Screen name="certificate/[id]" options={{ headerShown: false }} />
             </Stack>
           </SafeAreaProvider>
         </AuthSessionProvider>
