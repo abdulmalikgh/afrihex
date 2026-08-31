@@ -13,7 +13,9 @@ Read these files before implementing:
 
 - `AGENTS.md`
 - `mobile-api.md`
+- `MOBILE_API_EXAMPLES.md`
 - `MOBILE_IMPLEMENTATION_PLAN.md`
+- `IMPLEMENTATION_PLAN_FROM_WEB.md`
 - `docs/PROJECT_KNOWLEDGE.md`
 - `docs/ENGINEERING_RULES.md`
 

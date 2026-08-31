@@ -320,20 +320,106 @@ Fast prototype alternative:
 - Use `GET /v2/route/static` for route previews.
 - Add MapLibre after the core API flows are stable.
 
-### Phase 6: Certificates
+### Phase 6: Verify (address verification + certificates)
 
-Endpoints:
+Source of truth: [`verify.md`](./verify.md), the backend's mobile integration guide.
 
-- `GET /v2/certificates/{id}/verify`
-- `GET /v2/certificates/{id}/pdf`
+The Verify tab does **two jobs**, and they differ in audience and in auth:
 
-Features:
+| Job | Who it is for | Auth |
+| --- | --- | --- |
+| Verify your own address | The app's signed-in user | `X-API-Key` + `customer_id` |
+| Check a certificate | A bank, landlord, or auditor holding an ID | None |
+| Read the full signed payload | Signed in, and only for valid certificates | `X-API-Key` |
 
-- Certificate ID input.
-- Verification result screen.
-- Show valid/revoked/signature status.
-- Show issuer and issued date.
-- Download/share PDF.
+#### The rule that shapes the whole screen
+
+**A certificate is not proof of a passing verification.** One is issued for
+failed attempts too — it attests that a signed attempt happened, nothing more.
+So the UI carries two independent facts that must never collapse into one
+indicator:
+
+- **Is this document authentic?** → `valid` from `/verify` → the hero badge.
+- **Was the person actually there?** → `verified` on the verification payload →
+  a distinct row inside the subject block.
+
+A genuine certificate recording a failed verification is a normal, expected
+result. It reads as "This certificate is genuine" in the hero and "Verification
+— Not verified" in the detail, exactly as the web does.
+
+#### Endpoints
+
+| Endpoint | Auth | Use |
+| --- | --- | --- |
+| `POST /v2/kyc/verify` | 🔑 | Verify an address. Issues a certificate as a side effect |
+| `GET /v2/certificates/{id}/verify` | None | Is this certificate genuine and un-revoked |
+| `GET /v2/certificates/{id}/pdf` | None | The shareable printable certificate |
+| `GET /v2/certificates/{id}` | 🔑 | Full signed payload — subject, address, integrity, signature |
+
+#### Screens
+
+**1. Verify tab root** — a segmented control over the two jobs.
+
+*Verify an address* (authenticated): a GPS-code field and a "Use my location"
+button, and nothing else. `POST /v2/kyc/verify` accepts four input methods, but
+`verify.md` is explicit that mobile builds only `gps_code` and `gps_fix` —
+`hex_code` and `manual` have no mobile use case. Signed out, this soft-prompts;
+it never walls the tab, because the other half is public.
+
+*Check a certificate* (public): ID entry or QR scan, straight through to the
+certificate screen.
+
+A read-only map sits above both inputs on the address side, showing the point
+that is about to be verified. It is **not** a third input method — it cannot be
+tapped. It is there because verifying is not a lookup: it writes a record
+against the user's account and mints a signed certificate, so a mistyped code or
+a 150 m GPS fix is worth catching one moment earlier. A loose fix is called out
+in the card before the user commits to it, rather than explained afterwards by a
+failed result. Empty, the card carries the "Use my location" action — most
+people do not have their GPS code memorised, and a blank field makes the slow
+path look like the default.
+
+**2. Verification result** — a card under the form. Outcome headline from
+`verified`, then hex code, GPS code, region/area, quality, and confidence. A
+"View signed certificate" row appears **only** when `data.certificate` is
+present: it is `omitempty`, and its absence is normal rather than an error.
+
+**3. Certificate detail** (`/certificate/[id]`) — one screen, three entry
+points: the result card, a QR scan, and manual ID entry.
+
+The public half always renders: hero verdict, certificate details, actions, and
+the disclaimer verbatim. The rich half — subject, address with a map pin, device
+integrity, signature — renders only when the viewer is signed in **and** the
+certificate is valid. Withholding detail for revoked and invalid certificates is
+deliberate, and matches the web: it discourages misuse of a certificate that
+should not be relied on.
+
+#### Certificate IDs
+
+`cert_` plus **up to** 12 alphanumerics — `cert_GPU4XBpCp7q` is 11 characters.
+The server strips `-` and `_` out of base64url before truncating, so validating
+for exactly 12 rejects genuine IDs. Case-sensitive and matched exactly, so user
+input is sent verbatim.
+
+Treat an ID as a credential. It is the capability for every public endpoint, so
+it does not belong in logs or analytics.
+
+#### Deliberate deviation from `verify.md`
+
+`verify.md` says to treat a 404 the same as `valid: false`. We distinguish them,
+as the live web app does: a mistyped ID and a forged certificate are different
+problems with different fixes, and telling someone their landlord's certificate
+is invalid when they simply typed it wrong is a bad outcome. Reverting is a
+one-line change in `useCertificateVerification`.
+
+#### Not building
+
+- **Offline signature verification.** `verify.md` advises against it for mobile,
+  and the signed bytes are Go's `json.Marshal` field order rather than JCS —
+  a real footgun to reimplement. Server-side `signature_valid` is enough.
+- **`POST /v2/verify/proximity`.** A separate physical-visit feature.
+- **Certificate expiry.** Certificates do not expire; they are only ever valid
+  or revoked.
 
 ### Phase 7: Deferred Account Features
 

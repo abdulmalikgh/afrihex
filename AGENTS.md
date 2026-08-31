@@ -1,8 +1,10 @@
 # AfriHex Mobile Agent Rules
 
 This repository is the AfriHex mobile app. Build it as an Expo SDK 57 React Native app
-for iOS and Android, guided by `mobile-api.md`, `MOBILE_IMPLEMENTATION_PLAN.md`, and the
-project-local Codex skill at `.codex/skills/afrihex-mobile/`.
+for iOS and Android. Treat `mobile-api.md` as the authoritative backend contract, use
+`MOBILE_API_EXAMPLES.md` as supporting request/response examples, and use both
+`MOBILE_IMPLEMENTATION_PLAN.md` and `IMPLEMENTATION_PLAN_FROM_WEB.md` as implementation
+guidance. Follow the project-local skill at `.codex/skills/afrihex-mobile/`.
 
 ## Engineering Principles
 
