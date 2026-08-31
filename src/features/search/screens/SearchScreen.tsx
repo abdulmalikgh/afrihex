@@ -20,6 +20,7 @@ import {
   type RecentSearch,
 } from '../../../api/search';
 import { BottomSheet, Screen, Toast, type SheetSnapIndex } from '../../../components';
+import { mapStatusScrim } from '../../../constants/mapStyle';
 import { mapColors, mapElevation, mapShape, mapSize } from '../../../constants/material';
 import { spacing } from '../../../constants/spacing';
 import { hapticLight, hapticSelection, hapticSuccess, hapticWarning } from '../../../utils/haptics';
@@ -526,12 +527,9 @@ export function SearchScreen() {
           focus={mapFocus}
         />
 
-        {/* The map runs under the status bar, and its labels collide with the
-            clock and battery. A short scrim keeps the system glyphs readable
-            without walling the map off behind an opaque strip. */}
         <LinearGradient
           pointerEvents="none"
-          colors={['rgba(0, 0, 0, 0.45)', 'rgba(0, 0, 0, 0)']}
+          colors={mapStatusScrim}
           style={[styles.statusScrim, { height: insets.top + spacing.sm }]}
         />
 

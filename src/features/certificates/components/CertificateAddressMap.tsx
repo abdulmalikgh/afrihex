@@ -2,6 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
 import { colors } from '../../../constants/colors';
+import { mapDarkStyle } from '../../../constants/mapStyle';
 import { radius } from '../../../constants/radius';
 
 type CertificateAddressMapProps = {
@@ -20,6 +21,9 @@ export function CertificateAddressMap({ lat, lng }: CertificateAddressMapProps) 
       <MapView
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
+        customMapStyle={mapDarkStyle}
+        userInterfaceStyle="dark"
+        loadingBackgroundColor={colors.cardAlt}
         scrollEnabled={false}
         zoomEnabled={false}
         rotateEnabled={false}

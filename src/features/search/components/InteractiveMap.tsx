@@ -3,6 +3,8 @@ import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'reac
 import MapView, { Marker, type Region } from 'react-native-maps';
 import { MapPin } from 'lucide-react-native';
 
+import { colors } from '../../../constants/colors';
+import { mapDarkStyle, mapWater } from '../../../constants/mapStyle';
 import { mapColors, mapElevation, mapShape } from '../../../constants/material';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
@@ -78,6 +80,8 @@ export function InteractiveMap({
       style={[styles.mapView, style]}
       initialRegion={region}
       mapPadding={{ top: mapPaddingTop, right: spacing.lg, bottom: mapPaddingBottom, left: spacing.lg }}
+      customMapStyle={mapDarkStyle}
+      userInterfaceStyle="dark"
       loadingEnabled
       loadingBackgroundColor={mapColors.surfaceContainerLow}
       loadingIndicatorColor={mapColors.primary}
@@ -185,7 +189,7 @@ const styles = StyleSheet.create({
   },
   mapPreview: {
     flex: 1,
-    backgroundColor: '#cfdec9',
+    backgroundColor: mapColors.surfaceContainerLow,
   },
   markerWrap: {
     alignItems: 'center',
@@ -210,12 +214,12 @@ const styles = StyleSheet.create({
     borderRadius: mapShape.full,
     backgroundColor: mapColors.primary,
     borderWidth: 2,
-    borderColor: mapColors.onPrimary,
+    borderColor: colors.white,
     ...mapElevation.level2,
   },
   landMass: {
     position: 'absolute',
-    backgroundColor: '#e5ead7',
+    backgroundColor: mapColors.surfaceContainerHigh,
     opacity: 0.9,
   },
   landMassOne: {
@@ -244,7 +248,7 @@ const styles = StyleSheet.create({
   },
   water: {
     position: 'absolute',
-    backgroundColor: '#70d1dc',
+    backgroundColor: mapWater,
     opacity: 0.95,
   },
   waterOne: {
@@ -266,27 +270,27 @@ const styles = StyleSheet.create({
   mapGrid: {
     ...StyleSheet.absoluteFill,
     borderWidth: 1,
-    borderColor: 'rgba(93, 111, 96, 0.18)',
+    borderColor: mapColors.outlineVariant,
   },
   countryLabel: {
     position: 'absolute',
     top: 165,
     left: '42%',
-    color: 'rgba(76, 86, 87, 0.42)',
+    color: mapColors.outline,
   },
   cityLabel: {
     position: 'absolute',
     bottom: 80,
     left: '54%',
-    color: 'rgba(76, 86, 87, 0.62)',
+    color: mapColors.onSurfaceVariant,
   },
   osmLabel: {
     position: 'absolute',
     right: spacing.md,
     bottom: spacing.sm,
     borderRadius: radius.round,
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    color: '#4b514d',
+    backgroundColor: mapColors.surface,
+    color: mapColors.onSurfaceVariant,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },

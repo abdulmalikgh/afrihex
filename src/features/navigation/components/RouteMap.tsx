@@ -5,6 +5,7 @@ import { Flag } from 'lucide-react-native';
 
 import { AppText } from '../../../components';
 import { colors } from '../../../constants/colors';
+import { mapDarkStyle } from '../../../constants/mapStyle';
 import { mapColors } from '../../../constants/material';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
@@ -81,6 +82,8 @@ export function RouteMap({
       style={styles.mapView}
       initialRegion={DEFAULT_REGION}
       mapPadding={{ top: mapPaddingTop, right: spacing.lg, bottom: spacing.lg, left: spacing.lg }}
+      customMapStyle={mapDarkStyle}
+      userInterfaceStyle="dark"
       loadingEnabled
       loadingBackgroundColor={mapColors.surfaceContainerLow}
       loadingIndicatorColor={mapColors.primary}
@@ -141,7 +144,7 @@ function EndpointMarker({
     >
       <View style={[styles.endpointMarker, tone === 'destination' && styles.endpointMarkerDestination]}>
         {tone === 'destination' ? (
-          <Flag color={colors.white} size={14} />
+          <Flag color={colors.onDanger} size={14} />
         ) : (
           <AppText variant="caption" style={styles.endpointMarkerText}>
             {label}
@@ -213,7 +216,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.xl,
-    backgroundColor: '#cfdec9',
+    backgroundColor: mapColors.surfaceContainerLow,
   },
   webFallbackCaption: {
     maxWidth: 280,
@@ -232,7 +235,8 @@ const styles = StyleSheet.create({
     backgroundColor: mapColors.error,
   },
   endpointMarkerText: {
-    color: colors.white,
+    // Dark on the green fill (7.3:1); white would measure 2.5:1.
+    color: colors.onPrimary,
   },
   landmarkDot: {
     width: 10,
