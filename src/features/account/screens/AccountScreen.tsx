@@ -1,10 +1,9 @@
 import { router } from 'expo-router';
 import { BarChart3, Check, KeyRound, LockKeyhole, LogOut, TrendingUp } from 'lucide-react-native';
-import { StyleSheet, Text, View, type DimensionValue } from 'react-native';
+import { StyleSheet, View, type DimensionValue } from 'react-native';
 
 import { AppButton, AppText, ErrorBanner, GoogleIcon, LoadingState, ResultCard, Screen } from '../../../components';
 import { colors } from '../../../constants/colors';
-import { fontFamilies } from '../../../constants/typography';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
 import { useAuthSession } from '../../authentication/context/AuthSessionProvider';
@@ -30,7 +29,7 @@ export function AccountScreen() {
     return (
       <Screen scroll contentStyle={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.anonymousTitle}>Get more from AfriHex</Text>
+          <AppText variant="title">Get more from AfriHex</AppText>
           <AppText variant="body" tone="muted">
             Save searches, track usage, and access full route details across devices.
           </AppText>
@@ -198,12 +197,6 @@ const styles = StyleSheet.create({
   header: {
     gap: spacing.sm,
     paddingTop: spacing.md,
-  },
-  anonymousTitle: {
-    color: colors.text,
-    fontFamily: fontFamilies.heading,
-    fontSize: 25,
-    lineHeight: 32,
   },
   actions: {
     gap: spacing.md,

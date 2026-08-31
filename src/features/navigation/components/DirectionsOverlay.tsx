@@ -22,6 +22,7 @@ import {
 import { AppText } from '../../../components';
 import { mapColors, mapElevation, mapShape } from '../../../constants/material';
 import { spacing } from '../../../constants/spacing';
+import { fontFamilies, fontSizes } from '../../../constants/typography';
 import type { AutocompleteResult } from '../../../api/search';
 import type { RouteMode, RouteNarration } from '../../../api/route';
 import type { AvoidLocation } from '../hooks/useAvoidLocations';
@@ -509,7 +510,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     paddingVertical: spacing.sm,
-    fontSize: 16,
+    fontFamily: fontFamilies.body,
+    fontSize: fontSizes.base,
     color: mapColors.onSurface,
   },
   headerControls: {
