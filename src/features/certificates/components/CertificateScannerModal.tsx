@@ -196,8 +196,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   close: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.round,

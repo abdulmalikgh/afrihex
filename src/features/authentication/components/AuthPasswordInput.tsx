@@ -48,7 +48,7 @@ const styles = StyleSheet.create({
     right: spacing.md,
     top: 0,
     bottom: 0,
-    width: 40,
+    width: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

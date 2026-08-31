@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: spacing.xs,
-    minHeight: 40,
+    minHeight: 44,
     marginHorizontal: spacing.md,
     marginTop: spacing.sm,
     borderRadius: mapShape.full,

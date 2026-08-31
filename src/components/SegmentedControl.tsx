@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   },
   option: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,

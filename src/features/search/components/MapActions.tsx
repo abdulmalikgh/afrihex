@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
     color: mapColors.onSurfaceVariant,
   },
   chip: {
-    minHeight: 36,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,

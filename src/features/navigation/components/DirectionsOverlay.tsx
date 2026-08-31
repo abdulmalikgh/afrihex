@@ -30,6 +30,9 @@ import { NARRATION_OPTIONS, getEndpointLabel } from '../utils/directionsFormatti
 
 type FocusedField = 'from' | 'to';
 
+/** Smallest comfortable tap target: 44pt on iOS, 48dp on Android. */
+const MIN_TARGET = 44;
+
 /**
  * Travel modes as icons, the way Google shows them. Order runs fastest to
  * slowest, and okada sits second because it is the common alternative to driving
@@ -326,6 +329,9 @@ function IconButton({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
+      // The header packs two fields and four controls into one row, so these stay
+      // visually small and grow their hit area instead — 44pt minimum either way.
+      hitSlop={Math.max(0, (MIN_TARGET - size) / 2)}
       style={({ pressed }) => [
         styles.iconButton,
         { width: size, height: size },
@@ -530,7 +536,7 @@ const styles = StyleSheet.create({
   },
   modeTab: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: mapShape.full,

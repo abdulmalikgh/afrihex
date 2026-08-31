@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     backgroundColor: mapPressedLayer,
   },
   textButton: {
-    minHeight: 40,
+    minHeight: 44,
     justifyContent: 'center',
     marginTop: spacing.xs,
     borderRadius: mapShape.full,
