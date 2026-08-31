@@ -4,7 +4,7 @@ import { StyleSheet, Text, type TextProps, type TextStyle } from 'react-native';
 import { colors } from '../constants/colors';
 import { fontFamilies, fontSizes, lineHeights } from '../constants/typography';
 
-type TextVariant = 'title' | 'subtitle' | 'body' | 'bodyStrong' | 'caption' | 'code';
+type TextVariant = 'title' | 'subtitle' | 'body' | 'bodyStrong' | 'caption' | 'code' | 'codeHero' | 'overline';
 type TextTone = 'default' | 'muted' | 'faint' | 'primary' | 'danger' | 'gold';
 
 type AppTextProps = TextProps & {
@@ -45,6 +45,19 @@ const variantStyles = StyleSheet.create<Record<TextVariant, TextStyle>>({
     fontSize: fontSizes.sm,
     lineHeight: lineHeights.sm,
     letterSpacing: 0.8,
+  },
+  codeHero: {
+    fontFamily: fontFamilies.monoSemiBold,
+    fontSize: fontSizes['2xl'],
+    lineHeight: lineHeights['2xl'],
+    letterSpacing: 1.2,
+  },
+  overline: {
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
   },
 });
 
