@@ -1,3 +1,3 @@
-import { CertificatesScreen } from '../../src/features/certificates/screens/CertificatesScreen';
+import { VerifyScreen } from '../../src/features/certificates/screens/VerifyScreen';
 
-export default CertificatesScreen;
+export default VerifyScreen;
