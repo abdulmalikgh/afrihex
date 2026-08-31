@@ -74,7 +74,7 @@ const heroPresentation: Record<CertificateHeroStatus, HeroPresentation> = {
     body: 'The signature is cryptographically valid and the certificate has not been revoked.',
     accent: colors.primaryLight,
     badgeColor: colors.primary,
-    icon: <ShieldCheck color={colors.white} size={30} />,
+    icon: <ShieldCheck color={colors.onPrimary} size={30} />,
   },
   revoked: {
     eyebrow: 'Revoked',
@@ -82,7 +82,7 @@ const heroPresentation: Record<CertificateHeroStatus, HeroPresentation> = {
     body: 'It was revoked by the issuer.',
     accent: colors.danger,
     badgeColor: colors.danger,
-    icon: <ShieldX color={colors.white} size={30} />,
+    icon: <ShieldX color={colors.onDanger} size={30} />,
   },
   signature_invalid: {
     eyebrow: 'Not authentic',
@@ -90,7 +90,7 @@ const heroPresentation: Record<CertificateHeroStatus, HeroPresentation> = {
     body: "The signature does not match the issuer's public key, or the record is malformed. Do not rely on this certificate.",
     accent: colors.gold,
     badgeColor: colors.gold,
-    icon: <ShieldAlert color={colors.surface} size={30} />,
+    icon: <ShieldAlert color={colors.onGold} size={30} />,
   },
   not_found: {
     eyebrow: 'Not found',

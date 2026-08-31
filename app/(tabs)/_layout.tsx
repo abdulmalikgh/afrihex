@@ -10,7 +10,8 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primaryLight,
-        tabBarInactiveTintColor: colors.faint,
+        // `faint` measures 3.5:1 on `card` — under AA for a 12px tab label.
+        tabBarInactiveTintColor: colors.muted,
         tabBarStyle: {
           minHeight: 68,
           borderTopColor: colors.border,

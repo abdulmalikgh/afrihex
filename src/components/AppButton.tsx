@@ -6,6 +6,7 @@ import {
   View,
   type GestureResponderEvent,
   type PressableProps,
+  type TextStyle,
 } from 'react-native';
 
 import { colors } from '../constants/colors';
@@ -47,11 +48,11 @@ export function AppButton({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={variant === 'primary' || variant === 'danger' ? colors.white : colors.text} />
+        <ActivityIndicator color={labelColors[variant]} />
       ) : (
         <View style={styles.content}>
           {icon ? <View style={styles.icon}>{icon}</View> : null}
-          <AppText variant="bodyStrong" tone={variant === 'danger' ? 'default' : 'default'}>
+          <AppText variant="bodyStrong" style={labelStyles[variant]}>
             {children}
           </AppText>
         </View>
@@ -88,6 +89,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+});
+
+/**
+ * Label colour per variant, rather than one colour for every button.
+ *
+ * The filled variants take dark labels: `colors.text` on `primary` measures
+ * 2.97:1 and on `danger` 2.83:1, both of which fail AA for a 16px label. Against
+ * the same fills these read 5.6:1 and 5.8:1.
+ */
+const labelColors: Record<ButtonVariant, string> = {
+  primary: colors.onPrimary,
+  secondary: colors.text,
+  ghost: colors.text,
+  danger: colors.onDanger,
+};
+
+const labelStyles = StyleSheet.create<Record<ButtonVariant, TextStyle>>({
+  primary: { color: labelColors.primary },
+  secondary: { color: labelColors.secondary },
+  ghost: { color: labelColors.ghost },
+  danger: { color: labelColors.danger },
 });
 
 const variantStyles = StyleSheet.create<Record<ButtonVariant, object>>({
