@@ -23,10 +23,23 @@
         {
           "locationWhenInUsePermission": "Allow AfriHex to use your location to find your current GPS code."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow AfriHex to use the camera to scan the QR code on a certificate.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
       ]
     ],
     "ios": {
       "supportsTablet": true
+    },
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#111814",
+      "translucent": false
     },
     "android": {
       "adaptiveIcon": {
