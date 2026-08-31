@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { ScrollView, StyleSheet, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -23,6 +23,12 @@ type ScreenProps = {
    * there instead of showing through behind the clock, wifi and battery.
    */
   maskStatusBar?: boolean;
+  /**
+   * Access to the underlying scroll view, for screens that replace their content
+   * in place — a result appearing where a form was leaves the reader halfway down
+   * a page they have never seen.
+   */
+  scrollRef?: RefObject<ScrollView | null>;
 };
 
 export function Screen({
@@ -32,6 +38,7 @@ export function Screen({
   contentStyle,
   bleed = false,
   maskStatusBar = true,
+  scrollRef,
 }: ScreenProps) {
   const insets = useSafeAreaInsets();
   const paddingStyle = bleed
@@ -43,6 +50,7 @@ export function Screen({
 
   const body = scroll ? (
     <ScrollView
+      ref={scrollRef}
       style={styles.container}
       contentContainerStyle={[bleed ? styles.bleedContent : styles.content, paddingStyle, contentStyle]}
       keyboardShouldPersistTaps="handled"

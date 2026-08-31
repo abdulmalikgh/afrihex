@@ -12,7 +12,9 @@ type ErrorBannerProps = {
 
 export function ErrorBanner({ message }: ErrorBannerProps) {
   return (
-    <View style={styles.container} accessibilityRole="alert">
+    // `alert` alone is not announced on Android — the live region is what makes
+    // an error that appears after a tap reach a screen-reader user at all.
+    <View style={styles.container} accessibilityRole="alert" accessibilityLiveRegion="assertive">
       <TriangleAlert color={colors.danger} size={18} />
       <AppText variant="caption" tone="danger" style={styles.message}>
         {message}
