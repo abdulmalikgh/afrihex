@@ -1,166 +1,157 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { BadgeCheck, CircleCheck, CircleHelp, CircleX, Crosshair } from 'lucide-react-native';
 
-import { AppButton, AppInput, AppText, ErrorBanner, LoadingState } from '../../../components';
+import { AppButton, AppText, ErrorBanner } from '../../../components';
 import { colors } from '../../../constants/colors';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
-import type { KycVerificationResult } from '../../../api/kyc';
-import { useAddressTarget } from '../hooks/useAddressTarget';
-import { useAddressVerification } from '../hooks/useAddressVerification';
-import { AddressPreviewCard } from './AddressPreviewCard';
-import { OptionalRow } from './DetailSection';
-import { formatEnumValue, formatMetres, formatScoreAsPercent } from '../utils/certificateFormatting';
+import { useAddressVerification, type VerificationTarget } from '../hooks/useAddressVerification';
+import { useDeviceLocation } from '../hooks/useDeviceLocation';
+import { VerificationConfirm } from './VerificationConfirm';
+import { VerificationMethodPicker, type VerificationMethod } from './VerificationMethodPicker';
+import { VerificationResultCard } from './VerificationResultCard';
+
+type AddressVerificationPanelProps = {
+  /** Called once the outcome replaces the form, so the screen can scroll to it. */
+  onResult?: () => void;
+};
 
 /**
- * Verifying your own address. Two inputs and no more — a GPS code, or the device
- * fix. The endpoint accepts four methods, but the other two have no mobile use
- * case and would be surface area for nothing.
+ * Verifying your own address, staged as pick → confirm → result.
  *
- * The map is not a third input: it cannot be tapped. It is there because
- * verifying is not a lookup — it writes a record against the user's account and
- * mints a signed certificate — so it is worth showing them the point first.
+ * One question at a time, because this is not a lookup: it writes a record
+ * against the account and mints a signed certificate. The two inputs are the
+ * device fix and a typed GPS code — the endpoint accepts four methods, but the
+ * other two have no mobile use case.
+ *
+ * Nothing here resolves an address before the check. The device fix is already
+ * coordinates, and a typed code is named by the verification response itself, so
+ * the whole flow talks to one endpoint and no other.
  */
-export function AddressVerificationPanel() {
+export function AddressVerificationPanel({ onResult }: AddressVerificationPanelProps) {
+  const [method, setMethod] = useState<VerificationMethod | null>(null);
   const [gpsCode, setGpsCode] = useState('');
-  const {
-    target,
-    isResolving,
-    resolveFailed,
-    isLocating,
-    locationError,
-    useCurrentLocation,
-    clearFix,
-  } = useAddressTarget(gpsCode);
+  const location = useDeviceLocation();
   const { state, verify, reset } = useAddressVerification();
 
   const submitting = state.status === 'submitting';
+  const hasResult = state.status === 'success';
 
-  const editCode = (value: string) => {
-    setGpsCode(value);
-    clearFix();
+  useEffect(() => {
+    if (hasResult) {
+      onResult?.();
+    }
+  }, [hasResult, onResult]);
+
+  const choose = (next: VerificationMethod) => {
+    setMethod(next);
+
+    if (next === 'gps_fix') {
+      void location.locate();
+    }
+  };
+
+  // Back keeps whatever was typed. Coming back to a field you already filled and
+  // finding it empty is a small betrayal, and the code is not cheap to retype.
+  const goBack = () => {
+    setMethod(null);
     reset();
   };
 
-  const locate = () => {
+  const startOver = () => {
+    setMethod(null);
     setGpsCode('');
+    location.reset();
     reset();
-    void useCurrentLocation();
   };
+
+  const submit = () => {
+    const target = buildTarget(method, gpsCode, location.fix);
+
+    if (target) {
+      void verify(target);
+    }
+  };
+
+  if (state.status === 'success') {
+    return <VerificationResultCard result={state.result} onVerifyAnother={startOver} />;
+  }
 
   return (
     <View style={styles.container}>
-      <AddressPreviewCard
-        target={target}
-        isResolving={isResolving}
-        isLocating={isLocating}
-        onUseCurrentLocation={locate}
-      />
+      <StepProgress step={method ? 2 : 1} label={method ? 'Confirm and verify' : 'Choose a method'} />
 
-      <View style={styles.inputRow}>
-        <AppInput
-          value={gpsCode}
-          onChangeText={editCode}
-          placeholder="GPS code (e.g. GA-142-7281)"
-          autoCapitalize="characters"
-          autoCorrect={false}
-          autoComplete="off"
-          editable={!submitting}
-          returnKeyType="done"
-          accessibilityLabel="GPS code"
-          style={styles.input}
-        />
-        {/* Mirrors the scan button on the certificate tab, so the two panels
-            share one shape: a field, and the shortcut that fills it for you. */}
-        <Pressable
-          onPress={locate}
-          disabled={submitting}
-          accessibilityRole="button"
-          accessibilityLabel="Use my current location"
-          style={styles.locateButton}
-        >
-          <Crosshair color={colors.text} size={22} />
-        </Pressable>
-      </View>
+      {method ? (
+        <>
+          <VerificationConfirm
+            method={method}
+            fix={location.fix}
+            isLocating={location.isLocating}
+            locationError={location.error}
+            gpsCode={gpsCode}
+            onChangeCode={(value) => {
+              setGpsCode(value);
+              reset();
+            }}
+            onRetryLocation={() => {
+              reset();
+              void location.locate();
+            }}
+            onBack={goBack}
+            onVerify={submit}
+            submitting={submitting}
+          />
 
-      {locationError ? <ErrorBanner message={locationError} /> : null}
-      {resolveFailed ? (
-        <AppText variant="caption" tone="muted">
-          No address matches that code. Check the characters, or use your location instead.
-        </AppText>
-      ) : null}
-
-      <AppButton onPress={() => target && void verify(target)} disabled={!target || submitting} loading={submitting}>
-        Verify this address
-      </AppButton>
-
-      <AppText variant="caption" tone="faint" align="center">
-        We record the check and issue a signed certificate you can share.
-      </AppText>
-
-      {state.status === 'submitting' ? <LoadingState label="Verifying the address" /> : null}
-      {state.status === 'error' ? (
-        <View style={styles.failure}>
-          <ErrorBanner message={state.message} />
-          {state.kind === 'session' ? <SignInAgainButton /> : null}
-        </View>
-      ) : null}
-      {state.status === 'success' ? <VerificationResultCard result={state.result} /> : null}
+          {state.status === 'error' ? (
+            <View style={styles.failure}>
+              <ErrorBanner message={state.message} />
+              {state.kind === 'session' ? <SignInAgainButton /> : null}
+            </View>
+          ) : null}
+        </>
+      ) : (
+        <VerificationMethodPicker onChoose={choose} isLocating={location.isLocating} />
+      )}
     </View>
   );
 }
 
 /**
- * The outcome of the check — not of the certificate. A certificate is issued
- * either way, so this reports `verified` and never infers a pass from one
- * existing.
+ * Two steps is few enough to be worth showing and too few to be worth a widget:
+ * a filled bar, an empty one, and the name of where you are.
  */
-function VerificationResultCard({ result }: { result: KycVerificationResult }) {
-  const router = useRouter();
-  const outcome = outcomePresentation(result.verified);
-  const certificate = result.certificate;
-
+function StepProgress({ step, label }: { step: 1 | 2; label: string }) {
   return (
-    <View style={[styles.card, { borderColor: outcome.accent }]}>
-      <View style={styles.outcome}>
-        {outcome.icon}
-        <AppText variant="bodyStrong" style={[styles.outcomeText, { color: outcome.accent }]}>
-          {outcome.label}
-        </AppText>
+    <View
+      style={styles.progress}
+      accessibilityRole="progressbar"
+      accessibilityLabel={`Step ${step} of 2: ${label}`}
+      accessibilityValue={{ min: 1, max: 2, now: step }}
+    >
+      <View style={styles.progressTrack}>
+        <View style={styles.progressFilled} />
+        <View style={[styles.progressSegment, step === 2 && styles.progressFilled]} />
       </View>
-
-      <View style={styles.rows}>
-        <OptionalRow label="Hex address" value={result.hex_code} mono />
-        <OptionalRow label="GPS code" value={result.ghanapost_code} mono />
-        <OptionalRow
-          label="Area"
-          value={[result.area, result.district, result.region].filter(Boolean).join(' · ') || undefined}
-        />
-        <OptionalRow label="Quality" value={formatScoreAsPercent(result.quality_score)} />
-        <OptionalRow label="Confidence" value={formatScoreAsPercent(result.confidence)} />
-        <OptionalRow label="Distance from address" value={formatMetres(result.device_distance_m)} />
-        <OptionalRow label="Spoof risk" value={formatEnumValue(result.spoof_risk)} mono />
-      </View>
-
-      {certificate ? (
-        <AppButton
-          variant="secondary"
-          onPress={() => router.push(`/certificate/${certificate.id}`)}
-          icon={<BadgeCheck color={colors.text} size={18} />}
-        >
-          View signed certificate
-        </AppButton>
-      ) : (
-        // `certificate` is omitempty and its absence is normal — signing may be
-        // off, or issuance may have failed while the check itself succeeded.
-        <AppText variant="caption" tone="faint">
-          No certificate was issued for this check.
-        </AppText>
-      )}
+      <AppText variant="overline" tone="muted">
+        Step {step} of 2 · {label}
+      </AppText>
     </View>
   );
+}
+
+function buildTarget(
+  method: VerificationMethod | null,
+  gpsCode: string,
+  fix: ReturnType<typeof useDeviceLocation>['fix'],
+): VerificationTarget | null {
+  if (method === 'gps_fix') {
+    return fix ? { method: 'gps_fix', lat: fix.lat, lng: fix.lng, accuracyM: fix.accuracyM } : null;
+  }
+
+  const trimmed = gpsCode.trim();
+
+  return method === 'gps_code' && trimmed ? { method: 'gps_code', gpsCode: trimmed } : null;
 }
 
 function SignInAgainButton() {
@@ -173,72 +164,28 @@ function SignInAgainButton() {
   );
 }
 
-function outcomePresentation(verified: boolean | undefined) {
-  if (verified === true) {
-    return {
-      label: 'Verified — device at this address',
-      accent: colors.primaryLight,
-      icon: <CircleCheck color={colors.primaryLight} size={20} />,
-    };
-  }
-
-  if (verified === false) {
-    return {
-      label: 'Not verified — device not at this address',
-      accent: colors.danger,
-      icon: <CircleX color={colors.danger} size={20} />,
-    };
-  }
-
-  // Never guess a verdict. A missing outcome field is reported as missing
-  // rather than defaulting to a pass or a fail, either of which would be a lie.
-  return {
-    label: 'Check recorded — outcome unavailable',
-    accent: colors.muted,
-    icon: <CircleHelp color={colors.muted} size={20} />,
-  };
-}
-
 const styles = StyleSheet.create({
   container: {
     gap: spacing.md,
   },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
+  progress: {
     gap: spacing.sm,
   },
-  input: {
-    flex: 1,
-  },
-  locateButton: {
-    width: 48,
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    backgroundColor: colors.inputBg,
-  },
-  card: {
-    marginTop: spacing.sm,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    backgroundColor: colors.card,
-    padding: spacing.lg,
-    gap: spacing.lg,
-  },
-  outcome: {
+  progressTrack: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
-  outcomeText: {
+  progressSegment: {
     flex: 1,
+    height: 3,
+    borderRadius: radius.round,
+    backgroundColor: colors.border,
   },
-  rows: {
-    gap: spacing.md,
+  progressFilled: {
+    flex: 1,
+    height: 3,
+    borderRadius: radius.round,
+    backgroundColor: colors.primary,
   },
   failure: {
     gap: spacing.md,

@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { QrCode } from 'lucide-react-native';
+import { ScanLine } from 'lucide-react-native';
 
 import { AppButton, AppInput, AppText, Screen, SegmentedControl } from '../../../components';
 import { colors } from '../../../constants/colors';
@@ -14,28 +14,39 @@ import { normalizeCertificateId } from '../utils/certificateId';
 
 type VerifyMode = 'address' | 'certificate';
 
+// Short enough to survive the segment at 11px on a 375pt screen. The subtitle
+// below the title carries the fuller explanation.
 const MODES = [
-  { label: 'Verify an address', value: 'address' as const },
-  { label: 'Check a certificate', value: 'certificate' as const },
+  { label: 'My address', value: 'address' as const },
+  { label: 'A certificate', value: 'certificate' as const },
 ];
 
 /**
  * Two jobs share this tab because they share a word, not a workflow.
  *
- * Verifying your own address is the app user's task and needs their API key.
+ * Verifying your own address is the app user's task and needs their session.
  * Checking someone else's certificate is a stranger's task — a bank, a landlord
  * — and is deliberately public. Keeping both reachable means a signed-out
  * visitor can still do the public one.
  */
 export function VerifyScreen() {
   const [mode, setMode] = useState<VerifyMode>('address');
+  const scrollRef = useRef<ScrollView>(null);
+
+  // The result replaces the form in place, so without this the reader is left
+  // partway down an outcome they have not seen the top of.
+  const scrollToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
 
   return (
-    <Screen scroll contentStyle={styles.content}>
+    <Screen scroll scrollRef={scrollRef} contentStyle={styles.content}>
       <View style={styles.header}>
         <AppText variant="title">Verify</AppText>
         <AppText variant="body" tone="muted">
-          Prove you are at your address, or check a certificate someone gave you.
+          {mode === 'address'
+            ? 'Prove you are at your address and get a signed certificate for it.'
+            : 'Check that a certificate is genuine and has not been revoked.'}
         </AppText>
       </View>
 
@@ -46,12 +57,12 @@ export function VerifyScreen() {
         accessibilityLabel="What would you like to verify"
       />
 
-      {mode === 'address' ? <AddressMode /> : <CertificateLookup />}
+      {mode === 'address' ? <AddressMode onResult={scrollToTop} /> : <CertificateLookup />}
     </Screen>
   );
 }
 
-function AddressMode() {
+function AddressMode({ onResult }: { onResult: () => void }) {
   const { status } = useAuthSession();
   const router = useRouter();
 
@@ -70,7 +81,7 @@ function AddressMode() {
     );
   }
 
-  return <AddressVerificationPanel />;
+  return <AddressVerificationPanel onResult={onResult} />;
 }
 
 function CertificateLookup() {
@@ -97,40 +108,53 @@ function CertificateLookup() {
 
   return (
     <View style={styles.container}>
-      <AppText variant="caption" tone="muted">
-        Enter the certificate ID — in the address-verification email link, or printed on the PDF
-        certificate — or scan the QR code on the document.
-      </AppText>
-
-      <View style={styles.inputRow}>
-        <AppInput
-          value={certificateId}
-          onChangeText={setCertificateId}
-          placeholder="cert_GPU4XBpCp7q"
-          // IDs are matched exactly, so every keyboard convenience — capitalising
-          // the first letter, correcting an apparent typo — would break a valid one.
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoComplete="off"
-          spellCheck={false}
-          returnKeyType="search"
-          onSubmitEditing={() => open(certificateId)}
-          accessibilityLabel="Certificate ID"
-          style={styles.input}
-        />
-        <Pressable
+      {/* The QR path leads, because the common case is a printed certificate in
+          someone's hand — and every certificate PDF carries the code. */}
+      <View style={styles.card}>
+        <AppText variant="bodyStrong">Scan the certificate</AppText>
+        <AppText variant="caption" tone="muted">
+          Every printed certificate carries a QR code. Point your camera at it and we will check it
+          straight away.
+        </AppText>
+        <AppButton
+          variant="secondary"
           onPress={() => setScannerOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Scan a certificate QR code"
-          style={styles.scanButton}
+          icon={<ScanLine color={colors.text} size={18} />}
         >
-          <QrCode color={colors.text} size={22} />
-        </Pressable>
+          Scan QR code
+        </AppButton>
       </View>
+
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <AppText variant="caption" tone="faint">
+          or enter the ID
+        </AppText>
+        <View style={styles.dividerLine} />
+      </View>
+
+      <AppInput
+        value={certificateId}
+        onChangeText={setCertificateId}
+        placeholder="cert_GPU4XBpCp7q"
+        // IDs are matched exactly, so every keyboard convenience — capitalising
+        // the first letter, correcting an apparent typo — would break a valid one.
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="off"
+        spellCheck={false}
+        returnKeyType="search"
+        onSubmitEditing={() => open(certificateId)}
+        accessibilityLabel="Certificate ID"
+      />
 
       <AppButton onPress={() => open(certificateId)} disabled={!certificateId.trim()}>
         Check certificate
       </AppButton>
+
+      <AppText variant="caption" tone="faint" align="center">
+        No account needed. Anyone can check any certificate.
+      </AppText>
 
       <CertificateScannerModal
         visible={scannerOpen}
@@ -152,6 +176,14 @@ const styles = StyleSheet.create({
   container: {
     gap: spacing.md,
   },
+  card: {
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    padding: spacing.lg,
+  },
   prompt: {
     gap: spacing.md,
     borderRadius: radius.lg,
@@ -160,22 +192,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     padding: spacing.lg,
   },
-  inputRow: {
+  divider: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: spacing.sm,
-  },
-  input: {
-    flex: 1,
-  },
-  scanButton: {
-    width: 48,
-    minHeight: 48,
     alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.inputBorder,
-    backgroundColor: colors.inputBg,
+    gap: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
   },
 });
