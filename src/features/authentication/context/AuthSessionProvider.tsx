@@ -298,25 +298,33 @@ function mergeAccountInfo(baseUser: AfriHexUser | undefined, accountInfo: Accoun
   };
 }
 
+/**
+ * Builds a user from `/v2/me` alone, for the case where a token survived but the
+ * cached user did not — a reinstall, a cleared read, a storage migration.
+ *
+ * `/v2/me` returns a narrower object than login does: no `id`, no `usage_today`,
+ * and the plan arrives as `tier`. Requiring those two made this throw on every
+ * valid response, which presented to the user as "Sign in again" on an account
+ * that was perfectly fine. Only what the endpoint actually guarantees is required
+ * now; the rest falls back.
+ */
 function buildUserFromAccountInfo(accountInfo: AccountInfo): AfriHexUser {
   if (
-    typeof accountInfo.id !== 'number' ||
     typeof accountInfo.name !== 'string' ||
     typeof accountInfo.email !== 'string' ||
     typeof accountInfo.plan !== 'string' ||
-    typeof accountInfo.daily_limit !== 'number' ||
-    typeof accountInfo.usage_today !== 'number'
+    typeof accountInfo.daily_limit !== 'number'
   ) {
     throw new Error('Sign in again to refresh your account details.');
   }
 
   return {
-    id: accountInfo.id,
+    id: accountInfo.id ?? 0,
     name: accountInfo.name,
     email: accountInfo.email,
     plan: accountInfo.plan,
     daily_limit: accountInfo.daily_limit,
-    usage_today: accountInfo.usage_today,
+    usage_today: accountInfo.usage_today ?? 0,
     expires_at: accountInfo.expires_at ?? null,
     ...(accountInfo.api_key ? { api_key: accountInfo.api_key } : {}),
     ...(accountInfo.key_prefix ? { key_prefix: accountInfo.key_prefix } : {}),
@@ -324,15 +332,20 @@ function buildUserFromAccountInfo(accountInfo: AccountInfo): AfriHexUser {
   };
 }
 
-function isInvalidSessionError(error: unknown): boolean {
+/**
+ * True when the server has told us this API key is no good — expired, revoked, or
+ * never valid. Exported so callers outside the auth flow (route planning) can
+ * distinguish a dead session from a genuine request failure.
+ */
+export function isInvalidSessionError(error: unknown): boolean {
   if (!(error instanceof ApiRequestError)) {
     return false;
   }
 
-  return (
-    error.status === 401 ||
-    error.code === 'MISSING_API_KEY' ||
-    error.code === 'INVALID_API_KEY' ||
-    error.code === 'KEY_EXPIRED'
-  );
+  // Deliberately narrow. `KEY_EXPIRED` is the *subscription* side, and both docs
+  // are explicit: "A lapsed subscription keeps the user authenticated (tier
+  // degrades to free) so they can renew — never force-logout". `MISSING_API_KEY`
+  // means this client sent no key at all, which is a local race, not a server
+  // rejection. Only a genuinely rejected credential ends the session.
+  return error.status === 401 || error.code === 'INVALID_API_KEY';
 }

@@ -8,7 +8,8 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type ApiMeta = {
   request_id?: string;
   cached?: boolean;
-  latency?: number;
+  /** Go duration string on the wire, e.g. "3.806918ms" — not a number. */
+  latency?: string;
 };
 
 type ApiErrorBody = {
@@ -33,6 +34,13 @@ type ApiRequestOptions<TData> = {
   parseData: (data: unknown) => TData;
 };
 
+type FetchApiEnvelopeOptions = {
+  path: string;
+  method?: HttpMethod;
+  body?: object;
+  authenticated?: boolean;
+};
+
 export class ApiRequestError extends Error {
   readonly code: string;
   readonly status: number;
@@ -45,13 +53,18 @@ export class ApiRequestError extends Error {
   }
 }
 
-export async function apiRequest<TData>({
+/**
+ * Fetches an AfriHex endpoint and returns the raw `{ success: true, ... }` envelope
+ * object, without assuming the payload lives under `data` — most endpoints use `data`,
+ * but at least one (`route/traffic`) uses a different top-level key. Returns `undefined`
+ * only for a genuinely empty success body (e.g. `204 No Content`).
+ */
+export async function fetchApiEnvelope({
   path,
   method = 'GET',
   body,
   authenticated = false,
-  parseData,
-}: ApiRequestOptions<TData>): Promise<TData> {
+}: FetchApiEnvelopeOptions): Promise<Record<string, unknown> | undefined> {
   const headers = new Headers({ Accept: 'application/json' });
 
   if (body) {
@@ -72,7 +85,23 @@ export async function apiRequest<TData>({
     body: body ? JSON.stringify(body) : undefined,
   });
   const responseText = await response.text();
-  const responseBody: unknown = responseText ? JSON.parse(responseText) : undefined;
+  // Infrastructure errors — a proxy 502, a CDN 401 — arrive as HTML or plain text,
+  // not the documented envelope. Parsing those must not throw a raw SyntaxError,
+  // or the failure never becomes an ApiRequestError and the session-invalid
+  // handling upstream never sees it.
+  let responseBody: unknown;
+
+  try {
+    responseBody = responseText ? JSON.parse(responseText) : undefined;
+  } catch {
+    throw new ApiRequestError({
+      code: response.ok ? 'INVALID_RESPONSE' : 'HTTP_ERROR',
+      message: response.ok
+        ? 'The server returned an unexpected response.'
+        : `Request failed with status ${response.status}`,
+      status: response.status,
+    });
+  }
 
   if (!response.ok || isApiErrorBody(responseBody)) {
     const error = isApiErrorBody(responseBody)
@@ -86,11 +115,11 @@ export async function apiRequest<TData>({
     });
   }
 
-  if (!isApiSuccessBody(responseBody)) {
-    if (response.ok && responseBody === undefined) {
-      return parseData(undefined);
-    }
+  if (responseBody === undefined) {
+    return undefined;
+  }
 
+  if (!isApiSuccessBody(responseBody)) {
     throw new ApiRequestError({
       code: 'INVALID_RESPONSE',
       message: 'The server returned an unexpected response.',
@@ -98,7 +127,19 @@ export async function apiRequest<TData>({
     });
   }
 
-  return parseData(responseBody.data);
+  return responseBody;
+}
+
+export async function apiRequest<TData>({
+  path,
+  method = 'GET',
+  body,
+  authenticated = false,
+  parseData,
+}: ApiRequestOptions<TData>): Promise<TData> {
+  const envelope = await fetchApiEnvelope({ path, method, body, authenticated });
+
+  return parseData(envelope?.data);
 }
 
 type QueryParamValue = string | number | boolean | null | undefined;
@@ -135,4 +176,16 @@ function isApiErrorBody(value: unknown): value is ApiErrorBody {
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+export function getOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+export function getOptionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+export function getNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' ? value : fallback;
 }

@@ -88,7 +88,9 @@ export function AccountScreen() {
   }
 
   const dailyLimit = usage?.daily_limit ?? user.daily_limit;
-  const usageToday = usage?.usage_today ?? user.usage_today;
+  // `/v2/usage` returns no `usage_today` — the only place that count exists is the
+  // `user` object from login, so it is the sole source here.
+  const usageToday = user.usage_today;
   const remaining = Math.max(dailyLimit - usageToday, 0);
   const usagePercent = dailyLimit > 0 ? Math.min(Math.round((usageToday / dailyLimit) * 100), 100) : 0;
   const progressWidth: DimensionValue = `${usagePercent}%`;

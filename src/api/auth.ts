@@ -3,6 +3,7 @@ import type {
   AccountInfo,
   AfriHexUser,
   AuthSession,
+  UsageEndpointCount,
   UsageSummary,
 } from '../features/authentication/types/auth';
 
@@ -178,6 +179,8 @@ function parseAccountInfo(data: unknown): AccountInfo {
     ...(typeof accountData.api_key === 'string' ? { api_key: accountData.api_key } : {}),
     ...(typeof accountData.key_prefix === 'string' ? { key_prefix: accountData.key_prefix } : {}),
     ...(typeof accountData.is_admin === 'boolean' ? { is_admin: accountData.is_admin } : {}),
+    ...(typeof accountData.active === 'boolean' ? { active: accountData.active } : {}),
+    ...(typeof accountData.created_at === 'string' ? { created_at: accountData.created_at } : {}),
   };
 }
 
@@ -187,10 +190,21 @@ function parseUsageSummary(data: unknown): UsageSummary {
   }
 
   return {
+    active: typeof data.active === 'boolean' ? data.active : undefined,
+    tier: typeof data.tier === 'string' ? data.tier : undefined,
     daily_limit: typeof data.daily_limit === 'number' ? data.daily_limit : undefined,
-    usage_today: typeof data.usage_today === 'number' ? data.usage_today : undefined,
+    bulk_today: typeof data.bulk_today === 'number' ? data.bulk_today : undefined,
+    expired: typeof data.expired === 'boolean' ? data.expired : undefined,
+    days_until_expiry:
+      typeof data.days_until_expiry === 'number' ? data.days_until_expiry : undefined,
     expires_at:
       typeof data.expires_at === 'string' || data.expires_at === null ? data.expires_at : undefined,
-    history: Array.isArray(data.history) ? data.history : undefined,
+    top_endpoints: Array.isArray(data.top_endpoints)
+      ? data.top_endpoints.filter(isUsageEndpointCount)
+      : undefined,
   };
+}
+
+function isUsageEndpointCount(value: unknown): value is UsageEndpointCount {
+  return isObject(value) && typeof value.Endpoint === 'string' && typeof value.Count === 'number';
 }
