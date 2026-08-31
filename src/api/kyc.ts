@@ -39,6 +39,13 @@ export type KycVerificationResult = {
   region?: string;
   district?: string;
   area?: string;
+  /**
+   * The address the check resolved to, so the result can pin it on a map. Carried
+   * by the response's own address block — the app never geocodes the code itself,
+   * which would mean an endpoint outside this feature's contract.
+   */
+  lat?: number;
+  lng?: number;
   device_distance_m?: number;
   gps_accuracy_m?: number;
   spoof_risk?: string;
@@ -93,6 +100,8 @@ function parseKycVerificationResult(data: unknown): KycVerificationResult {
     region: getOptionalString(address.region),
     district: getOptionalString(address.district),
     area: getOptionalString(address.area),
+    lat: getOptionalNumber(data.lat ?? address.lat),
+    lng: getOptionalNumber(data.lng ?? address.lng),
     device_distance_m: getOptionalNumber(
       verification.device_distance_m ?? proximity.device_distance_m,
     ),
