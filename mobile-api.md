@@ -228,17 +228,90 @@ profile, route_distance_m?, route_duration_s?, rerouted?, arrived? }`.
 
 ---
 
+## 🪪 Address verification (KYC)
+
+How a certificate comes into existence. There is no standalone "issue a
+certificate" call — one is created as a side effect of a verification.
+
+### Verify an address — `POST /v2/kyc/verify`
+
+🔑 Authenticated. The endpoint accepts four input methods; **mobile builds only
+two** — a GPS-code field and a "Use my location" button. `hex_code` and `manual`
+have no mobile use case.
+
+```json
+{ "customer_id": "<your user id>", "method": "gps_code", "location": { "gps_code": "GA-142-7281" } }
+{ "customer_id": "<your user id>", "method": "gps_fix",  "location": { "lat": 5.6037, "lng": -0.1870 } }
+```
+
+The response carries an **optional** `certificate` block:
+
+```json
+{
+  "certificate": {
+    "id": "cert_GPU4XBpCp7q",
+    "verification_url": "https://api.afrihex.com/v2/certificates/cert_GPU4XBpCp7q/verify",
+    "json_url": "https://api.afrihex.com/v2/certificates/cert_GPU4XBpCp7q",
+    "pdf_url": "https://api.afrihex.com/v2/certificates/cert_GPU4XBpCp7q/pdf",
+    "jwks_url": "https://api.afrihex.com/.well-known/verification-key.json",
+    "issued_at": "2026-04-27T14:06:25Z"
+  }
+}
+```
+
+`certificate` is `omitempty`. Its absence is **normal**, not an error — signing
+may not be configured, or issuance may have failed while the verification itself
+succeeded. Check for it before showing anything that depends on it.
+
+> ⚠️ **A certificate is not proof of a passing verification.** One is issued for
+> failed attempts too. Read the outcome off `verified` / `result` / `confidence`
+> on the verification response — never infer pass from a certificate existing.
+
+**Result card fields:**
+
+| Shown as | From |
+| --- | --- |
+| Hex address | `data.hex_code` |
+| GPS code | `data.ghanapost_code` |
+| Region / Area | `data.address.region` / `data.address.area` |
+| Quality | `data.quality_score` × 100 |
+| Confidence | `data.verification.confidence` |
+| "View signed certificate" | `data.certificate` — only when present |
+
+> **Unverified against a live response.** These paths come from `verify.md`'s
+> table; the widget's event payload shows a different shape (`declared_address`,
+> `proximity.device_distance_m`). The client parses tolerantly and renders only
+> what is present. One captured `POST /v2/kyc/verify` response would let us
+> tighten this.
+
+---
+
 ## 📜 Certificates
 
 Verification is **deliberately public** — an auditor, bank, or landlord must be able to
-check a cert without trusting us or holding a key.
+check a cert without trusting us or holding a key. `/verify`, `/pdf` and the JWKS endpoint
+sit outside the rate-limited `/v2` group, so a verifier can check many certificates with
+no key and no throttle.
+
+**ID format:** `cert_` followed by **up to** 12 alphanumerics — e.g. `cert_GPU4XBpCp7q`,
+which is 11. The server base64url-encodes 9 random bytes, strips `-` and `_`, and only then
+truncates to 12, so IDs that encoded those characters come out shorter. Do not validate for
+exactly 12 — it rejects genuine IDs.
+
+Case-sensitive and matched exactly, so send user input **verbatim**: normalising case turns
+a valid ID into a 404. The server does no format validation, so validate lightly on the
+client and let the lookup be the authority. (Earlier drafts of this doc showed
+`GH-CERT-ABC123`. That was a placeholder and was never a real ID.)
+
+**No expiry.** Certificates carry no `expires_at`, and there is no expired state — only
+valid, revoked, and signature-invalid.
 
 ### Verify — `GET /v2/certificates/{id}/verify`
 
 **No auth.** The shareable "is this cert real?" check.
 
 ```
-GET /v2/certificates/GH-CERT-ABC123/verify
+GET /v2/certificates/cert_GPU4XBpCp7q/verify
 ```
 
 **`data`:**
@@ -246,8 +319,8 @@ GET /v2/certificates/GH-CERT-ABC123/verify
 ```json
 {
   "valid": true,
-  "certificate_id": "GH-CERT-ABC123",
-  "issued_at": "2026-08-01T09:00:00Z",
+  "certificate_id": "cert_svrfU56Urzy4",
+  "issued_at": "2026-08-27T18:55:22.604520168Z",
   "signature_valid": true,
   "revoked": false,
   "signing_key_id": "v1",
@@ -255,33 +328,124 @@ GET /v2/certificates/GH-CERT-ABC123/verify
 }
 ```
 
+*(Captured live 2026-08-27 from `cert_svrfU56Urzy4`, a real certificate.)*
+Note `issued_at` carries nanosecond precision, and `revoked_at` / `revoke_reason`
+are **absent entirely** rather than `null`/`""` when the certificate is not
+revoked — parse them as optional.
+
+`issuer` is a **plain string** here. The full payload below nests it as an object — do not
+share one type between the two.
+
+`valid` is a server-computed roll-up: `valid = signature_valid && !revoked`. Only four
+combinations occur:
+
+| `valid` | `signature_valid` | `revoked` | Meaning |
+| --- | --- | --- | --- |
+| `true` | `true` | `false` | Genuine and current |
+| `false` | `true` | `true` | Revoked by the issuer |
+| `false` | `false` | `false` | Signature does not match |
+| `false` | `false` | `true` | Both |
+
+`valid: true` alongside `revoked: true` is impossible. When revoked, the response also
+carries `revoked_at` (RFC3339) and `revoke_reason`; both are omitted otherwise, and there
+is no "revoked by" field. `issued_at` is always RFC3339 UTC with `Z`.
+
+**States and status codes:**
+
+| Case | Status | Body |
+| --- | --- | --- |
+| Valid | 200 | `data.valid: true` |
+| Revoked | 200 | `data.valid: false`, `revoked: true` |
+| Signature fails | 200 | `data.valid: false`, `signature_valid: false` |
+| Unknown ID | 404 | `{ "success": false, "error": { "code": "NOT_FOUND", "message": "certificate not found: <id>" } }` |
+| Malformed ID | 404 | Same — the handler looks the raw string up, so anything unmatched is a 404 |
+
+An unknown ID is therefore an error about the ID the user typed, **not** a "not valid"
+verdict about a certificate. The two read very differently to someone holding a document.
+
 ### PDF — `GET /v2/certificates/{id}/pdf`
 
-**No auth.** Download/share the printable certificate. Is a PDF (not JSON).
-Open it in a web view / download it and share via the OS share sheet.
+**No auth.** `Content-Type: application/pdf`, `Content-Disposition: inline`,
+`Cache-Control: public, max-age=86400`. No custom headers are needed, so the URL opens
+directly in an in-app browser tab — a Safari sheet on iOS, a Custom Tab on Android — with
+no download step. Generated on demand, but it is a one-page A4 render and fast.
+
+⚠️ **A revoked certificate's PDF renders with no revoked marking** — the renderer does not
+check revocation status, so the document still looks valid. `/verify` is the authority;
+say so in the UI rather than letting the document imply otherwise.
+
+⚠️ **The PDF is public and prints `customer_id` and `declared_address`.** Anyone the
+holder forwards it to sees both. This is deliberate — the certificate ID is treated as a
+high-entropy capability — but it is worth a product decision rather than a surprise.
 
 ### Full payload — `GET /v2/certificates/{id}`
 
-🔑 Returns the signed payload + signature for display in the app:
+🔑 **Authenticated.** This one is *not* public: gating it keeps customer IDs and declared
+addresses from being enumerable by anyone holding a certificate ID. An anonymous verifier
+gets the `/verify` badge, issuer and issue date — nothing more. That is the intended
+anonymous experience.
 
 ```json
 {
   "certificate": {
-    "id": "GH-CERT-ABC123", "version": 1, "issued_at": "2026-08-01T09:00:00Z",
+    "id": "cert_GPU4XBpCp7q", "version": 1, "issued_at": "2026-08-01T09:00:00Z",
     "issuer": { "name": "GhanaPostGPS Verification Service", "verification_base_url": "...", "jwks_url": ".../.well-known/verification-key.json" },
     "subject": { "customer_id": "cus_123", "declared_address": "Spintex Rd, Accra" },
-    "verification": { "verification_id": "v_1", "result": "matched", "verified": true, "confidence": 0.98, "device_distance_m": 4.2, "method": "proximity", "timestamp": "2026-08-01T09:00:00Z" },
+    "verification": { "verification_id": "v_1", "result": "NEAR", "verified": true, "confidence": 0.98, "device_distance_m": 4.2, "method": "proximity", "timestamp": "2026-08-01T09:00:00Z" },
     "address": { "gps_code": "GL-0563-7842", "region": "Greater Accra", "district": "Osu Klottey", "lat": 5.6560, "lng": -0.1680, "quality_score": 0.9 },
-    "integrity": { "spoof_risk": "none", "fraud_risk_score": 12, "ip_location_match": "matched" },
+    "integrity": { "spoof_risk": "LOW", "fraud_risk_score": 0.12, "ip_location_match": "PASS" },
     "disclaimer": "This certificate attests that a device was detected within the stated distance..."
   },
-  "signature": { "algorithm": "EdDSA", "kid": "v1", "signature": "<base64>" }
+  "signature": { "algorithm": "EdDSA", "kid": "v1", "signature": "<standard base64, padded>" }
 }
 ```
 
+**Enum values.** These are the real ones — earlier drafts listed `"matched"`, which is not
+a value in the code, and a 0–100 fraud score, which is not the scale:
+
+| Field | Values |
+| --- | --- |
+| `verification.result` | `NEAR` · `FAR` · `ADDRESS_NOT_FOUND` · `INVALID_FORMAT` |
+| `verification.method` | Opaque string set at issuance — do not switch on it |
+| `integrity.spoof_risk` | `LOW` · `MEDIUM` · `HIGH` |
+| `integrity.ip_location_match` | `PASS` · `MISMATCH` · `NOT_PROVIDED` |
+| `integrity.fraud_risk_score` | **0.0–1.0**, higher is worse |
+| `integrity.fraud_risk_level` | `>=0.8` critical · `>=0.6` high · `>=0.4` medium · else low. Omitted when empty |
+
+**Always present:** `subject.customer_id`, `subject.declared_address`,
+`verification.{verification_id, result, verified, confidence, device_distance_m, method, timestamp}`,
+`address.{gps_code, lat, lng}`, `integrity.{spoof_risk, fraud_risk_score}`, `disclaimer`,
+`issuer.*`, `signature.*`.
+
+**Omitted when empty:** `verification.gps_accuracy_m`, `address.{region, district, area, quality_score}`,
+`integrity.{fraud_risk_level, ip_location_match}`.
+
+`disclaimer` is a hardcoded legal attestation carried by every certificate and must be
+displayed verbatim. A collapsed but reachable section is fine; it need not be above the fold.
+
 ### Public signing key — `GET /.well-known/verification-key.json`
 
-**No auth.** Lets the app (or an auditor) independently verify the signature offline.
+**No auth.** A JWKS — `{ "keys": [ { "kty": "OKP", "crv": "Ed25519", "x": "<base64url, unpadded>", "use": "sig", "alg": "EdDSA", "kid": "v1" } ] }`.
+The certificate's `signature.kid` selects the key.
+
+**What is signed is not JCS.** The signed bytes are Go's `json.Marshal` of the
+`certificate` object, which preserves struct field order: `id, version, issued_at, issuer,
+subject, verification, address, integrity, disclaimer`. A verifier in another language must
+reproduce that exact order. `signature.signature` is standard base64, **padded** (64-byte
+Ed25519 signature); the JWK's `x` is base64url, **unpadded**. Do not mix the two.
+
+Only one key (`kid: "v1"`) is live and rotation is not implemented yet. An unrecognised
+`kid` fails closed — `/verify` returns `signature_valid: false`.
+
+> **Not required for v1.** Server-side `signature_valid` is sufficient for launch. Offline
+> verification matters only if the app must verify without trusting the API, and it costs a
+> cryptography dependency (Ed25519 is not in `expo-crypto`).
+
+### Not available
+
+There is **no** endpoint listing a user's own certificates, and **no** deep-link contract
+for opening one. A certificate is reached by typing its ID or by scanning its QR code,
+which encodes the full verification URL `{verification_base_url}/v2/certificates/{id}/verify`.
 
 ---
 
@@ -428,6 +592,6 @@ curl -X POST https://api.afrihex.com/v2/route \
 
 # public (no key)
 curl "https://api.afrihex.com/v2/search/autocomplete?q=accra+mall&limit=5"
-curl "https://api.afrihex.com/v2/certificates/GH-CERT-ABC123/verify"
+curl "https://api.afrihex.com/v2/certificates/cert_GPU4XBpCp7q/verify"
 ```
 

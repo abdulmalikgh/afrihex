@@ -1,10 +1,12 @@
 # AfriHex Mobile API — Request/Response Reference (captured live)
 
-**Audience:** mobile dev team · **Captured:** 2026-08-09 against `https://api.afrihex.com`
+**Audience:** mobile dev team · **Captured:** 2026-08-09 · **Contract-verified:** 2026-08-11
+against `https://api.afrihex.com` + the Go source + `docs/openapi.yaml`
 
-Every payload below is a **real response** from the live API (trimmed where noted).
-All JSON bodies use `Content-Type: application/json`. Authenticated endpoints send
-`X-API-Key: <token>`. Response envelope: `{ success, data, meta }`; errors:
+Every payload below is a **real response** from the live API (trimmed where noted),
+unless marked "(shape as defined in code)". All JSON bodies use
+`Content-Type: application/json`. Authenticated endpoints send `X-API-Key: <token>`;
+**public endpoints take no key.** Response envelope: `{ success, data, meta }`; errors:
 `{ success:false, error:{ code, message } }`.
 
 ---
@@ -259,9 +261,70 @@ GET /v2/me/recent-searches?limit=5        (X-API-Key: <token>)
 
 ```
 POST /v2/me/recent-searches
+X-API-Key: <token>
 { "query": "Accra Mall", "result_type": "place", "result_ref": "GL1524944",
   "display_name": "Accra Mall, Greater Accra", "lat": 5.6221843, "lng": -0.1729361 }
 ```
+
+```json
+{ "success": true, "data": { "saved": true } }
+```
+
+```
+DELETE /v2/me/recent-searches/{id}
+X-API-Key: <token>
+```
+
+```json
+{ "success": true, "data": { "deleted": true } }
+```
+
+Delete a search that isn't yours / doesn't exist:
+```json
+{ "success": false, "error": { "code": "NOT_FOUND", "message": "search not found" } }
+```
+
+```
+DELETE /v2/me/recent-searches        (no body — clears the whole list)
+X-API-Key: <token>
+```
+
+```json
+{ "success": true, "data": { "cleared": true } }
+```
+
+> **Notes:** POST returns `{ saved:true }` and is idempotent per query (re-searching the same
+> query bumps `search_count` rather than creating a duplicate row). `result_type` is one of
+> `gps | place | landmark | poi`. DELETE-by-id returns `NOT_FOUND` for a missing/foreign id;
+> the no-body DELETE clears the user's entire recent list.
+
+### 1j. Hex code resolve (authenticated) — the precise pin
+
+```
+GET /v2/address/resolve?hex=AF-GH-7-0GXTJJB0ZZZZZ      (X-API-Key: <token>)
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "hex": "AF-GH-7-0GXTJJB0ZZZZZ",
+    "point": { "lng": -0.1867, "lat": 5.604 },
+    "precision": "structure",
+    "confidence": 85,
+    "label": "main gate",
+    "last_seen_at": "2026-08-01T10:00:00Z"
+  },
+  "meta": { "request_id": "c86825f0-…", "cached": false, "latency": "1.8s" }
+}
+```
+
+- **There is no `pin` field** — the pin is `data.point.{lng,lat}`; trustworthiness is
+  `data.precision` + `data.confidence`.
+- `precision`: `structure` (verified gate/door; carries `label` + `last_seen_at`) |
+  `building_edge` (road-facing edge of the nearest footprint) | `hex_centroid` (fallback).
+- `confidence`: 75–90 `structure` · 65 `building_edge` · 50 `hex_centroid`.
+- Errors: `400 MISSING_PARAM` (no `hex`), `400 INVALID_HEX` (bad code), `503`, `500`.
 
 ---
 
@@ -276,7 +339,11 @@ X-API-Key: <token>
   "from": { "point": { "lat": 5.622195, "lng": -0.172948 } },
   "to":   { "point": { "lat": 5.56648,  "lng": -0.236579 } },
   "mode": "driving",
-  "narration": "both"
+  "narration": "both",
+  "language": "en-US",
+  "avoid_locations": [ { "lat": 5.603, "lng": -0.187 } ],
+  "avoid_flood_zones": true,
+  "lite": false
 }
 ```
 
@@ -321,9 +388,32 @@ X-API-Key: <token>
 ```
 
 - `coordinates` is `[lng, lat]` pairs (GeoJSON order); step `coordinates` too.
-- `mode`: `driving | foot | bicycle | motor_scooter`. `narration`: `landmark | street | both`.
-- `from`/`to` accept `hex` (`{hex: "…"}`), `point`, or both.
+- `mode`: `driving | foot | bicycle | motor_scooter | okada` — omitting `mode` (or passing `""`) also defaults to `driving`. `motor_scooter` and `okada` are aliases.
+- `narration`: `landmark | street | both`. `from`/`to` accept `hex` (`{hex: "…"}`), `point`, or both.
+- **`avoid_locations` is supported** — an array of `{ lat, lng }` points the route must avoid (snapped to the nearest road). `avoid_polygons` takes closed exterior rings of `[lng, lat]` pairs. `avoid_flood_zones` merges the curated flood zones.
+- `lite: true` returns only polyline + distance/duration/ETA — no steps, landmarks, or alternatives.
+- **Guaranteed vs optional fields on `data`:** only `distance_m`, `duration_s`, `eta_s`, `traffic_note`, `coordinates`, `steps`, `landmarks_passed` are always present. Everything below is **optional/conditional** (absent on the wire when empty/zero — code defensively):
+
+| Field | Where | Present when |
+|---|---|---|
+| `warnings` | top-level | endpoint inside an unavoidable flood zone, a zone that could not be excluded, flood avoidance abandoned entirely, or a GMet alert covers the route |
+| `flood_avoidance_failed` | top-level | `avoid_flood_zones` was requested but **no** route avoids the zones — the route returned ignores them and may flood. See the note below |
+| `alternatives` | top-level | up to 2 (never in `lite` mode) |
+| `recommended` / `recommend_reason` | top-level + each alternative | a non-fastest option wins (flood/rain) |
+| `rain_note` / `rain_eta_penalty_s` / `flood_crossings` | top-level + each alternative | rain/flood intelligence applied |
+| `has_unpaved` | top-level + each alternative | surface enrichment ran **and** the route has unpaved segments. **Absent = all paved OR not resolved — treat as "unknown"** |
+| `unpaved_distance_m` | top-level + each alternative | 0 is omitted; present only alongside `has_unpaved` |
+| `verbal_alert` | **per step** (`steps[].verbal_alert`), not top-level | the maneuver has a voice alert |
+
 - Unauthenticated route: `POST /v2/route/public` with the same body.
+
+**`avoid_flood_zones` is best-effort, not a guarantee.** Excluding every nearby
+zone can leave no legal path — across Accra the Odaw basin polygons cover most
+cross-town arteries. Rather than return `404 NO_ROUTE`, the API retries without
+the zones and returns the route with `flood_avoidance_failed: true` plus a
+warning. Badge that route as unsafe; do not present it as flood-avoiding. A
+caller's own `avoid_polygons` / `avoid_locations` are never dropped by this
+retry, so those can still legitimately produce `404 NO_ROUTE`.
 
 ### 2b. Traffic feed (authenticated, fail-open)
 
@@ -352,7 +442,8 @@ GET /v2/route/traffic        (X-API-Key: <token>)
 ```
 POST /v2/route/transit
 X-API-Key: <token>
-{ "from_lat": 5.6037, "from_lng": -0.1870, "to_lat": 5.56648, "to_lng": -0.236579 }
+{ "from_lat": 5.6037, "from_lng": -0.1870, "to_lat": 5.56648, "to_lng": -0.236579,
+  "date": "2026-08-08", "time": "12:00", "modes": "TRANSIT,WALK" }
 ```
 
 ```json
@@ -381,6 +472,13 @@ X-API-Key: <token>
 
 - `legs` are `WALK` and `BUS`; bus legs carry `route_short_name` / `route_long_name`
   (e.g. `222B · Maamobi-Nima Terminal to Lido Terminal`).
+- **`geometry` + `stops` on bus legs** (for drawing the route on a map): `geometry` is the
+  decoded leg path as `[lng, lat]` pairs; `stops` is the intermediate stops as
+  `{ name, lat, lng }`. Both are optional — fall back to a straight line between
+  `from_*`/`to_*` when `geometry` is absent.
+- **`modes`** is a case-insensitive substring test, not an enum: empty or containing
+  `"transit"` → transit routing (default); anything else (e.g. `"WALK"`) → walk-only plan.
+- `max_walk_m` is **accepted but currently ignored** — do not rely on it to bound walking.
 - If every itinerary is walk-only, show "a bus route doesn't beat walking here".
 - Optional `date` (`YYYY-MM-DD`) + `time` (`HH:MM`); default = now.
 
@@ -408,17 +506,41 @@ X-API-Key: <token>
 }
 ```
 
-### 2e. Navigation arrival telemetry (authenticated)
+### 2e. Navigation arrival telemetry (PUBLIC — no API key)
 
 ```
 POST /v2/navigation/arrival
-X-API-Key: <token>
 { "dest_lat": 5.56648, "dest_lng": -0.236579, "final_lat": 5.5663, "final_lng": -0.2365,
-  "origin_lat": 5.622195, "origin_lng": -0.172948, "profile": "driving",
-  "achieved_duration_s": 1500, "arrived": true }
+  "profile": "driving", "route_distance_m": 5210, "route_duration_s": 900,
+  "rerouted": false, "arrived": true,
+  "origin_lat": 5.622195, "origin_lng": -0.172948,
+  "started_at": "2026-08-11T09:00:00Z", "arrived_at": "2026-08-11T09:15:00Z",
+  "achieved_duration_s": 1180, "shape": "<polyline6>" }
 ```
 
 **Response: `204 No Content`** (no body). This feeds the learned-traffic loop.
+
+- **Public** — no `X-API-Key`; throttled to 30 concurrent; body cap 1 MB.
+- **All fields optional (fail-open):** missing/zero coordinates are silently dropped with
+  204, never a 400 (malformed JSON is the only 400). Send them anyway.
+- `profile`: `driving | foot | bicycle` — anything else normalizes to `driving`.
+- `arrived`: boolean, **defaults to `true`** when omitted (`false` = give-up).
+- `achieved_duration_s` is preferred over `started_at`/`arrived_at` when present.
+- Possible non-204: `503 DB_UNAVAILABLE`, `503 SERVER_BUSY` (throttle).
+
+### 2f. Static route map image (PUBLIC)
+
+```
+GET /v2/route/static?from=5.6037,-0.1870&to=5.5665,-0.2366&mode=driving
+```
+
+**Response:** `Content-Type: image/png`, `Cache-Control: public, max-age=3600`, body = a
+fixed **800×500 PNG** (Geoapify osm-bright) with the blue route line, green start pin, red
+end flag, numbered amber landmark pins and a small legend. `width`/`height` are **not**
+accepted — the size is fixed.
+
+Errors: `400 INVALID_PARAM` (from/to missing, malformed, or outside Ghana),
+`502 ROUTE_FAILED` / `502 MAP_FAILED`, `503 SERVICE_UNAVAILABLE` / `SERVER_BUSY`.
 
 ---
 
@@ -545,6 +667,82 @@ GET /v2/usage        (X-API-Key: <token>)
 POST /v2/me/rotate          → { success, data: { token, user } } (new key, old revoked)
 POST /v2/me/password        → attach/change password: { "current_password"?, "new_password" }
 ```
+
+---
+
+## 4. Map layers & weather (all PUBLIC — no API key)
+
+These power map overlays and rain/flood warnings. All return `application/json`, all are
+GeoJSON, and none require auth. (Content-Type is `application/json` — not
+`application/geo+json`.)
+
+### 4a. Flood-prone zones — always 200
+
+```
+GET /v2/route/flood-zones
+```
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [{
+    "type": "Feature",
+    "properties": { "name": "Kaneshie First Light / Graphic Road", "severity": "high", "status": "active" },
+    "geometry": { "type": "Polygon", "coordinates": [[[-0.243, 5.553], [-0.227, 5.553], [-0.227, 5.567], [-0.243, 5.567], [-0.243, 5.553]]] }
+  }]
+}
+```
+
+- `severity`/`status` are hardcoded `high`/`active` by default; `?scope=all` returns the real
+  DB values (`low|medium|high`, `active|possible`).
+- No `id` / `activation_mode` — those are admin-only.
+- `Cache-Control: public, max-age=600`.
+
+### 4b. Official GMet weather alerts — always 200
+
+```
+GET /v2/weather/alerts
+```
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [{
+    "type": "Feature",
+    "properties": {
+      "event": "Rain/Wet Spell", "severity": "Moderate", "urgency": "Immediate",
+      "certainty": "Observed", "headline": "Weather Alert: Continuous Rain Over Southern Ghana",
+      "instruction": "Carry umbrellas. Localised flash floods are anticipated.",
+      "areas": ["Greater Accra"], "source": "GMet", "expires_at": "2026-06-21T15:00:00Z"
+    },
+    "geometry": { "type": "MultiPolygon", "coordinates": [[[[-0.3, 5.5], [-0.1, 5.5], [-0.1, 5.7], [-0.3, 5.7], [-0.3, 5.5]]]] }
+  }]
+}
+```
+
+- No `id`, no `effective` timestamp — only `expires_at` (optional). `areas` can be `null`.
+- `Cache-Control: public, max-age=300`. Empty `features` when none in effect.
+
+### 4c. Rain-ahead precipitation forecast — always 200 (even on DB failure → empty)
+
+```
+GET /v2/precipitation-forecast
+```
+
+```json
+{
+  "type": "FeatureCollection",
+  "features": [{
+    "type": "Feature",
+    "geometry": { "type": "Point", "coordinates": [-0.2, 5.6] },
+    "properties": { "name": "Greater Accra", "probability": 98, "amount_mm": 1.2 }
+  }]
+}
+```
+
+- Point cloud (~165 points, 0.5° grid over Ghana), next-6h window, ordered by `probability`
+  descending. Only three properties per point — no timestamps.
+- `Cache-Control: public, max-age=600`.
 
 ---
 
