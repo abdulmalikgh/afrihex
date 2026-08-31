@@ -1,4 +1,11 @@
-import { apiRequest, buildApiPath, isObject } from './client';
+import {
+  apiRequest,
+  buildApiPath,
+  getNumber,
+  getOptionalNumber,
+  getOptionalString,
+  isObject,
+} from './client';
 
 export type AutocompleteResult = {
   name: string;
@@ -16,10 +23,15 @@ export type AutocompleteResponse = {
 export type LocationLookupResponse = {
   gps_name: string;
   address: string;
-  region: string;
-  district: string;
-  area: string;
-  postcode: string;
+  /**
+   * Administrative fields go empty outside the big cities, and this same shape is
+   * reused for every entry in a `/v2/nearby` page — so one thin row must not be
+   * able to discard the whole response.
+   */
+  region?: string;
+  district?: string;
+  area?: string;
+  postcode?: string;
   street?: string;
   center_latitude: number;
   center_longitude: number;
@@ -28,7 +40,7 @@ export type LocationLookupResponse = {
   east_longitude?: number;
   west_longitude?: number;
   google_maps_url?: string;
-  quality_score: number;
+  quality_score?: number;
 };
 
 export type AddressParseAnchor = {
@@ -109,7 +121,8 @@ export type LandmarkAroundResponse = {
   lat: number;
   lng: number;
   radius: number;
-  count: number;
+  /** Total POIs in radius — not the number of kinds. Omitted by some responses. */
+  count?: number;
   by_kind: Array<{
     kind: string;
     count: number;
@@ -121,7 +134,8 @@ export type RecentSearchResultType = 'gps' | 'place' | 'landmark' | 'poi';
 export type RecentSearch = {
   id: number;
   query: string;
-  result_type: RecentSearchResultType;
+  /** Optional: the API documents `query` as the only required field. */
+  result_type?: RecentSearchResultType;
   result_ref?: string;
   display_name?: string;
   lat?: number;
@@ -325,10 +339,6 @@ function parseLocationLookupResponse(data: unknown): LocationLookupResponse {
     !isObject(data) ||
     typeof data.gps_name !== 'string' ||
     typeof data.address !== 'string' ||
-    typeof data.region !== 'string' ||
-    typeof data.district !== 'string' ||
-    typeof data.area !== 'string' ||
-    typeof data.postcode !== 'string' ||
     typeof data.center_latitude !== 'number' ||
     typeof data.center_longitude !== 'number'
   ) {
@@ -338,10 +348,10 @@ function parseLocationLookupResponse(data: unknown): LocationLookupResponse {
   return {
     gps_name: data.gps_name,
     address: data.address,
-    region: data.region,
-    district: data.district,
-    area: data.area,
-    postcode: data.postcode,
+    region: getOptionalString(data.region),
+    district: getOptionalString(data.district),
+    area: getOptionalString(data.area),
+    postcode: getOptionalString(data.postcode),
     street: getOptionalString(data.street),
     center_latitude: data.center_latitude,
     center_longitude: data.center_longitude,
@@ -350,7 +360,8 @@ function parseLocationLookupResponse(data: unknown): LocationLookupResponse {
     east_longitude: getOptionalNumber(data.east_longitude),
     west_longitude: getOptionalNumber(data.west_longitude),
     google_maps_url: getOptionalString(data.google_maps_url),
-    quality_score: getNumber(data.quality_score, 0),
+    // Absent means the server did not score it — not that it scored zero.
+    quality_score: getOptionalNumber(data.quality_score),
   };
 }
 
@@ -470,7 +481,9 @@ function parseLandmarkAroundResponse(data: unknown): LandmarkAroundResponse {
     lat: data.lat,
     lng: data.lng,
     radius: data.radius,
-    count: getNumber(data.count, data.by_kind.length),
+    // `count` is the total POIs (the capture shows 404 across 9 kinds), so the
+    // number of kinds is never a sane stand-in for it.
+    count: getOptionalNumber(data.count),
     by_kind: data.by_kind.map(parseKindCount),
   };
 }
@@ -545,43 +558,29 @@ function parseRecentSearchesResponse(data: unknown): RecentSearchesResponse {
   };
 }
 
+/**
+ * Per `mobile-api.md`: "`result_type`: `gps | place | landmark | poi`. Only
+ * `query` is required." A row saved without one must not take the whole list
+ * down with it, so everything but `query` is read defensively.
+ */
 function parseRecentSearch(data: unknown): RecentSearch {
-  if (
-    !isObject(data) ||
-    typeof data.id !== 'number' ||
-    typeof data.query !== 'string' ||
-    !isRecentSearchResultType(data.result_type) ||
-    typeof data.search_count !== 'number' ||
-    typeof data.last_searched_at !== 'string'
-  ) {
+  if (!isObject(data) || typeof data.query !== 'string') {
     throw new Error('Recent search response has an unexpected shape.');
   }
 
   return {
-    id: data.id,
+    id: getNumber(data.id, 0),
     query: data.query,
-    result_type: data.result_type,
+    result_type: isRecentSearchResultType(data.result_type) ? data.result_type : undefined,
     result_ref: getOptionalString(data.result_ref),
     display_name: getOptionalString(data.display_name),
     lat: getOptionalNumber(data.lat),
     lng: getOptionalNumber(data.lng),
-    search_count: data.search_count,
-    last_searched_at: data.last_searched_at,
+    search_count: getNumber(data.search_count, 0),
+    last_searched_at: getOptionalString(data.last_searched_at) ?? '',
   };
 }
 
 function isRecentSearchResultType(value: unknown): value is RecentSearchResultType {
   return value === 'gps' || value === 'place' || value === 'landmark' || value === 'poi';
-}
-
-function getOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-function getOptionalNumber(value: unknown): number | undefined {
-  return typeof value === 'number' ? value : undefined;
-}
-
-function getNumber(value: unknown, fallback: number): number {
-  return typeof value === 'number' ? value : fallback;
 }
