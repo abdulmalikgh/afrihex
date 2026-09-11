@@ -4,7 +4,8 @@ export type RoutePoint = { lat: number; lng: number };
 
 export type RouteEndpoint = { point: RoutePoint } | { hex: string } | { gps_code: string };
 
-export type RouteMode = 'driving' | 'foot' | 'bicycle' | 'motor_scooter';
+/** `okada` is a server-side alias for `motor_scooter`; the app sends the canonical name. */
+export type RouteMode = 'driving' | 'foot' | 'bicycle' | 'motor_scooter' | 'truck';
 
 export type RouteNarration = 'landmark' | 'street' | 'both';
 
@@ -17,7 +18,26 @@ export type RouteRequest = {
   avoid_locations?: RoutePoint[];
   avoid_polygons?: Array<Array<[number, number]>>;
   avoid_flood_zones?: boolean;
+  /**
+   * Light rerouting around corroborated (`report_count >= 2`) flooding and
+   * road-blocked reports. Accident and police reports, and any single
+   * uncorroborated report, stay warn-only whatever this is set to.
+   */
+  avoid_incidents?: boolean;
   lite?: boolean;
+};
+
+/**
+ * Per-lane turn guidance, passed through from Valhalla's `turn:lanes` OSM tag.
+ *
+ * Genuinely rare — most Ghana roads carry no lane tagging — so it is optional
+ * per *step*, not per route. A turn instruction must render with or without it.
+ */
+export type RouteLane = {
+  indications: string[];
+  /** This lane is one the driver should be in for the upcoming manoeuvre. */
+  active: boolean;
+  valid: boolean;
 };
 
 export type RouteStep = {
@@ -39,6 +59,7 @@ export type RouteStep = {
   traffic_factor?: number;
   traffic_severity?: string;
   traffic_color?: string;
+  lanes?: RouteLane[];
 };
 
 export type LandmarkPassed = {
@@ -46,6 +67,12 @@ export type LandmarkPassed = {
   name: string;
   side?: string;
   at_step: number;
+  /**
+   * An active promotion on a claimed business, carried beside the name rather
+   * than baked into the narration string — so the caller decides whether and
+   * when to speak it. Empty outside the promotion's active window.
+   */
+  promotion_text?: string;
   /** Absent on responses that do not carry a position for the landmark. */
   centroid?: { lng: number; lat: number };
 };
@@ -83,6 +110,8 @@ export type RouteResponse = {
   flood_crossings?: number;
   has_unpaved?: boolean;
   unpaved_distance_m?: number;
+  /** Crowdsourced hazard reports near the route; folded into `warnings` too. */
+  incident_count?: number;
 };
 
 /**
@@ -136,6 +165,7 @@ function parseRouteResponse(data: unknown): RouteResponse {
     flood_crossings: getOptionalNumber(data.flood_crossings),
     has_unpaved: typeof data.has_unpaved === 'boolean' ? data.has_unpaved : undefined,
     unpaved_distance_m: getOptionalNumber(data.unpaved_distance_m),
+    incident_count: getOptionalNumber(data.incident_count),
   };
 }
 
@@ -169,6 +199,7 @@ function parseRouteStep(data: unknown): RouteStep {
     traffic_factor: getOptionalNumber(data.traffic_factor),
     traffic_severity: getOptionalString(data.traffic_severity),
     traffic_color: getOptionalString(data.traffic_color),
+    lanes: parseLanes(data.lanes),
   };
 }
 
@@ -178,6 +209,28 @@ function parseRouteStep(data: unknown): RouteStep {
  * accept it either way — a missing centroid costs one map dot, where throwing
  * would cost the entire route.
  */
+function parseLanes(value: unknown): RouteLane[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const lanes = value.flatMap((lane) => {
+    if (!isObject(lane) || !Array.isArray(lane.indications)) {
+      return [];
+    }
+
+    return [
+      {
+        indications: lane.indications.filter((item): item is string => typeof item === 'string'),
+        active: lane.active === true,
+        valid: lane.valid !== false,
+      },
+    ];
+  });
+
+  return lanes.length > 0 ? lanes : undefined;
+}
+
 function parseLandmarkPassed(data: unknown): LandmarkPassed {
   if (!isObject(data) || typeof data.slug !== 'string' || typeof data.name !== 'string') {
     throw new Error('Landmark passed has an unexpected shape.');
@@ -190,6 +243,7 @@ function parseLandmarkPassed(data: unknown): LandmarkPassed {
     name: data.name,
     side: getOptionalString(data.side),
     at_step: getNumber(data.at_step, 0),
+    promotion_text: getOptionalString(data.promotion_text),
     ...(typeof centroid?.lng === 'number' && typeof centroid.lat === 'number'
       ? { centroid: { lng: centroid.lng, lat: centroid.lat } }
       : {}),

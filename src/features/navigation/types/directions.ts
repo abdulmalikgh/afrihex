@@ -19,6 +19,7 @@ export type PlannedRoute = {
   hasUnpaved: 'yes' | 'no' | 'unknown';
   unpavedDistanceM?: number;
   floodCrossings?: number;
+  incidentCount?: number;
   recommended: boolean;
   recommendReason?: string;
   raw: RouteResponse;
@@ -46,6 +47,7 @@ export function toPlannedRoute(response: RouteResponse): PlannedRoute {
     hasUnpaved: response.has_unpaved === undefined ? 'unknown' : response.has_unpaved ? 'yes' : 'no',
     unpavedDistanceM: response.unpaved_distance_m,
     floodCrossings: response.flood_crossings,
+    incidentCount: response.incident_count,
     recommended: response.recommended ?? false,
     recommendReason: response.recommend_reason,
     raw: response,
