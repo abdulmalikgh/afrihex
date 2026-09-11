@@ -4,16 +4,20 @@ import {
   ArrowLeft,
   ArrowUpDown,
   Bike,
+  Bus,
   Car,
   Check,
   Clock,
   EllipsisVertical,
   Footprints,
+  Gauge,
   LocateFixed,
   MapPin,
+  Mic,
   Motorbike,
   Square,
   SquareCheckBig,
+  TriangleAlert,
   Waves,
   X,
   type LucideIcon,
@@ -24,10 +28,12 @@ import { mapColors, mapElevation, mapShape } from '../../../constants/material';
 import { spacing } from '../../../constants/spacing';
 import { fontFamilies, fontSizes } from '../../../constants/typography';
 import type { AutocompleteResult } from '../../../api/search';
-import type { RouteMode, RouteNarration } from '../../../api/route';
+import type { RouteNarration } from '../../../api/route';
+import type { TravelMode } from '../utils/directionsFormatting';
 import type { AvoidLocation } from '../hooks/useAvoidLocations';
 import type { RouteEndpointState } from '../hooks/useRouteEndpointSearch';
-import { NARRATION_OPTIONS, getEndpointLabel } from '../utils/directionsFormatting';
+import { NARRATION_OPTIONS, getEndpointLabel, isSuggestionListVisible } from '../utils/directionsFormatting';
+import { useVoiceInput } from '../hooks/useVoiceInput';
 
 type FocusedField = 'from' | 'to';
 
@@ -39,9 +45,12 @@ const MIN_TARGET = 44;
  * slowest, and okada sits second because it is the common alternative to driving
  * in Ghanaian cities.
  */
-const MODE_TABS: ReadonlyArray<{ value: RouteMode; icon: LucideIcon; label: string }> = [
+const MODE_TABS: ReadonlyArray<{ value: TravelMode; icon: LucideIcon; label: string }> = [
   { value: 'driving', icon: Car, label: 'Drive' },
   { value: 'motor_scooter', icon: Motorbike, label: 'Okada' },
+  // Transit sits with the other ways of getting there, the way Google and Apple
+  // place it — it is a travel mode, not a separate feature to go and find.
+  { value: 'transit', icon: Bus, label: 'Trotro' },
   { value: 'bicycle', icon: Bike, label: 'Bike' },
   { value: 'foot', icon: Footprints, label: 'Walk' },
 ] as const;
@@ -64,18 +73,27 @@ type DirectionsOverlayProps = {
   onSuggestionPress: (suggestion: AutocompleteResult) => void;
   onSwap: () => void;
   isLocating: boolean;
-  onCurrentLocation: () => void;
+  /** Which field is waiting on a fix, so only that one spins. */
+  locatingField: FocusedField | null;
+  onCurrentLocation: (field: FocusedField) => void;
   locationMessage: string | null;
-  mode: RouteMode;
-  onModeChange: (mode: RouteMode) => void;
+  mode: TravelMode;
+  onModeChange: (mode: TravelMode) => void;
   narration: RouteNarration;
   onNarrationChange: (narration: RouteNarration) => void;
   avoidFloodZones: boolean;
   onToggleAvoidFloodZones: (value: boolean) => void;
+  avoidIncidents: boolean;
+  onToggleAvoidIncidents: (value: boolean) => void;
+  /** Data saver: asks the API for polyline and ETA only. */
+  liteRoute: boolean;
+  onToggleLiteRoute: (value: boolean) => void;
   avoidLocations: AvoidLocation[];
   onRemoveAvoidLocation: (id: string) => void;
   isAddingAvoidLocation: boolean;
   onToggleAddAvoidLocation: () => void;
+  isReportingHazard: boolean;
+  onToggleReportHazard: () => void;
   isMenuOpen: boolean;
   onOpenMenu: () => void;
   onCloseMenu: () => void;
@@ -107,6 +125,7 @@ export function DirectionsOverlay({
   onSuggestionPress,
   onSwap,
   isLocating,
+  locatingField,
   onCurrentLocation,
   locationMessage,
   mode,
@@ -115,10 +134,16 @@ export function DirectionsOverlay({
   onNarrationChange,
   avoidFloodZones,
   onToggleAvoidFloodZones,
+  avoidIncidents,
+  onToggleAvoidIncidents,
+  liteRoute,
+  onToggleLiteRoute,
   avoidLocations,
   onRemoveAvoidLocation,
   isAddingAvoidLocation,
   onToggleAddAvoidLocation,
+  isReportingHazard,
+  onToggleReportHazard,
   isMenuOpen,
   onOpenMenu,
   onCloseMenu,
@@ -129,9 +154,11 @@ export function DirectionsOverlay({
   // Once the focused field's text is exactly the label a resolution produced, the
   // dropdown would otherwise keep matching itself and never close — only show it
   // while the user is actively typing something new.
-  const isQueryTheResolvedLabel =
-    focusedState.status === 'resolved' && focusedQuery.trim() === getEndpointLabel(focusedState.result);
-  const showSuggestions = !isQueryTheResolvedLabel && suggestions.length > 0 && focusedQuery.trim().length >= 2;
+  const showSuggestions = isSuggestionListVisible({
+    resolvedLabel: focusedState.status === 'resolved' ? getEndpointLabel(focusedState.result) : null,
+    query: focusedQuery,
+    suggestionCount: suggestions.length,
+  });
 
   return (
     <>
@@ -144,19 +171,23 @@ export function DirectionsOverlay({
 
           <View style={styles.fields}>
             <EndpointField
+              onVoice={(text) => {
+                onFromChangeText(text);
+                onFromSubmit();
+              }}
               value={fromQuery}
-              placeholder="Your location"
+              placeholder="Start, hex code or lat, lng"
               accessibilityLabel="Route start"
               onChangeText={onFromChangeText}
               onFocus={() => onFocusField('from')}
               onSubmitEditing={onFromSubmit}
               onClear={() => onFromChangeText('')}
-              busy={isLocating || fromState.status === 'loading'}
+              busy={locatingField === 'from' || fromState.status === 'loading'}
               trailing={
                 <IconButton
                   label="Use current location as start"
                   icon={LocateFixed}
-                  onPress={onCurrentLocation}
+                  onPress={() => onCurrentLocation('from')}
                   disabled={isLocating}
                   size={32}
                   iconSize={18}
@@ -165,14 +196,28 @@ export function DirectionsOverlay({
             />
 
             <EndpointField
+              onVoice={(text) => {
+                onToChangeText(text);
+                onToSubmit();
+              }}
               value={toQuery}
-              placeholder="Choose destination"
+              placeholder="Destination, hex code or lat, lng"
               accessibilityLabel="Route destination"
               onChangeText={onToChangeText}
               onFocus={() => onFocusField('to')}
               onSubmitEditing={onToSubmit}
               onClear={() => onToChangeText('')}
-              busy={toState.status === 'loading'}
+              busy={locatingField === 'to' || toState.status === 'loading'}
+              trailing={
+                <IconButton
+                  label="Use current location as destination"
+                  icon={LocateFixed}
+                  onPress={() => onCurrentLocation('to')}
+                  disabled={isLocating}
+                  size={32}
+                  iconSize={18}
+                />
+              }
             />
           </View>
 
@@ -248,10 +293,16 @@ export function DirectionsOverlay({
         onNarrationChange={onNarrationChange}
         avoidFloodZones={avoidFloodZones}
         onToggleAvoidFloodZones={onToggleAvoidFloodZones}
+        avoidIncidents={avoidIncidents}
+        onToggleAvoidIncidents={onToggleAvoidIncidents}
+        liteRoute={liteRoute}
+        onToggleLiteRoute={onToggleLiteRoute}
         avoidLocations={avoidLocations}
         onRemoveAvoidLocation={onRemoveAvoidLocation}
         isAddingAvoidLocation={isAddingAvoidLocation}
         onToggleAddAvoidLocation={onToggleAddAvoidLocation}
+        isReportingHazard={isReportingHazard}
+        onToggleReportHazard={onToggleReportHazard}
       />
     </>
   );
@@ -268,6 +319,7 @@ function EndpointField({
   onFocus,
   onSubmitEditing,
   onClear,
+  onVoice,
   busy,
   trailing,
 }: {
@@ -278,9 +330,12 @@ function EndpointField({
   onFocus: () => void;
   onSubmitEditing: () => void;
   onClear: () => void;
+  /** Receives a spoken place, already stripped of command phrasing. */
+  onVoice: (text: string) => void;
   busy: boolean;
   trailing?: ReactNode;
 }) {
+  const voice = useVoiceInput({ onTranscript: onVoice });
   return (
     <View style={styles.field}>
       <TextInput
@@ -302,6 +357,28 @@ function EndpointField({
       {!busy && value.length > 0 ? (
         <IconButton label="Clear" icon={X} onPress={onClear} size={32} iconSize={18} />
       ) : null}
+
+      {/* Dictation fills this field. Speaking a destination and typing one
+          should end in the same box, not on different screens.
+
+          Always rendered, including when the native recogniser is missing from
+          the running binary: tapping it then explains why rather than leaving a
+          control the user expected to silently not exist. A feature that
+          disappears without a word is the harder failure to diagnose. */}
+      <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={voice.isListening ? 'Stop listening' : 'Speak this place'}
+          accessibilityState={{ busy: voice.isListening }}
+          onPress={voice.toggle}
+          hitSlop={6}
+          style={({ pressed }) => [styles.voiceButton, pressed && styles.pressed]}
+        >
+          {voice.isParsing ? (
+            <ActivityIndicator color={mapColors.primary} size="small" />
+          ) : (
+            <Mic color={voice.isListening ? mapColors.primary : mapColors.onSurfaceVariant} size={18} />
+          )}
+        </Pressable>
 
       {trailing}
     </View>
@@ -358,10 +435,16 @@ function RouteOptionsMenu({
   onNarrationChange,
   avoidFloodZones,
   onToggleAvoidFloodZones,
+  avoidIncidents,
+  onToggleAvoidIncidents,
+  liteRoute,
+  onToggleLiteRoute,
   avoidLocations,
   onRemoveAvoidLocation,
   isAddingAvoidLocation,
   onToggleAddAvoidLocation,
+  isReportingHazard,
+  onToggleReportHazard,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -370,10 +453,16 @@ function RouteOptionsMenu({
   onNarrationChange: (narration: RouteNarration) => void;
   avoidFloodZones: boolean;
   onToggleAvoidFloodZones: (value: boolean) => void;
+  avoidIncidents: boolean;
+  onToggleAvoidIncidents: (value: boolean) => void;
+  liteRoute: boolean;
+  onToggleLiteRoute: (value: boolean) => void;
   avoidLocations: AvoidLocation[];
   onRemoveAvoidLocation: (id: string) => void;
   isAddingAvoidLocation: boolean;
   onToggleAddAvoidLocation: () => void;
+  isReportingHazard: boolean;
+  onToggleReportHazard: () => void;
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -416,10 +505,47 @@ function RouteOptionsMenu({
           />
 
           <MenuRow
+            icon={TriangleAlert}
+            label="Avoid reported hazards"
+            onPress={() => onToggleAvoidIncidents(!avoidIncidents)}
+            trailing={
+              avoidIncidents ? (
+                <SquareCheckBig color={mapColors.primary} size={20} />
+              ) : (
+                <Square color={mapColors.outline} size={20} />
+              )
+            }
+          />
+
+          <MenuRow
+            icon={Gauge}
+            label="Use less data"
+            onPress={() => onToggleLiteRoute(!liteRoute)}
+            trailing={
+              liteRoute ? (
+                <SquareCheckBig color={mapColors.primary} size={20} />
+              ) : (
+                <Square color={mapColors.outline} size={20} />
+              )
+            }
+          />
+
+          <MenuRow
             icon={MapPin}
             label={isAddingAvoidLocation ? 'Tap the map to pick a spot' : 'Avoid a place on the map'}
             onPress={() => {
               onToggleAddAvoidLocation();
+              onClose();
+            }}
+          />
+
+          <View style={styles.menuDivider} />
+
+          <MenuRow
+            icon={TriangleAlert}
+            label={isReportingHazard ? 'Long-press the map to place it' : 'Report a hazard here'}
+            onPress={() => {
+              onToggleReportHazard();
               onClose();
             }}
           />
@@ -530,6 +656,12 @@ const styles = StyleSheet.create({
   },
   rowPressed: {
     backgroundColor: mapColors.surfaceContainer,
+  },
+  voiceButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modeTabs: {
     flexDirection: 'row',
