@@ -179,6 +179,8 @@ type ReverseParams = {
 type NearbyParams = ReverseParams & {
   radius?: number;
   limit?: number;
+  /** `next_cursor` from the previous page. Omit for the first page. */
+  cursor?: string;
 };
 
 type LandmarkAroundParams = ReverseParams & {
@@ -192,7 +194,8 @@ type GeocodeLandmarksParams =
     }
   | {
       near: string;
-      kind: string;
+      /** Omitted returns every kind near the point — how the claim flow finds "the shop I am standing in". */
+      kind?: string;
       radius?: number;
       limit?: number;
     };
@@ -242,9 +245,12 @@ export function getNearbyPlaces({
   lng,
   radius = 0.5,
   limit = 5,
+  cursor,
 }: NearbyParams): Promise<NearbyResponse> {
   return apiRequest({
-    path: buildApiPath('/v2/nearby', { lat, lng, radius, limit }),
+    // `cursor` is omitted by `buildApiPath` when undefined, so the first page is
+    // the same request it always was.
+    path: buildApiPath('/v2/nearby', { lat, lng, radius, limit, cursor }),
     parseData: parseNearbyResponse,
   });
 }
@@ -264,6 +270,142 @@ export function geocodeLandmarks(params: GeocodeLandmarksParams): Promise<Landma
   return apiRequest({
     path: buildApiPath('/v2/landmarks/geocode', params),
     parseData: parseLandmarkGeocodeResponse,
+  });
+}
+
+/**
+ * What sits in and around a hex cell.
+ *
+ * Two arrays, not one: `inside` is landmarks whose polygon contains the cell
+ * centroid, `nearby` is landmarks within a buffer that do not contain it. They
+ * are different server structs rather than one shape with optional fields —
+ * only `nearby` carries `distance_m`, because distance is meaningless for
+ * something you are standing inside.
+ */
+export type HexcodeLandmark = {
+  slug: string;
+  name: string;
+  kind: string;
+  source?: string;
+  confidence?: number;
+  /** Present on `nearby` entries only. Metres. */
+  distance_m?: number;
+  /** Present on `inside` entries only. Raw GeoJSON. */
+  geometry?: unknown;
+  containment: 'inside' | 'nearby';
+};
+
+export type HexcodeLandmarksResponse = {
+  hex: string;
+  inside: HexcodeLandmark[];
+  nearby: HexcodeLandmark[];
+};
+
+/** Public — the whole `/v2/hexcode` tree is H3 geometry with no tenant state. */
+export function getHexcodeLandmarks(hexCode: string): Promise<HexcodeLandmarksResponse> {
+  return apiRequest({
+    path: `/v2/hexcode/${encodeURIComponent(hexCode)}/landmarks`,
+    parseData: (data) => {
+      if (!isObject(data)) {
+        return { hex: hexCode, inside: [], nearby: [] };
+      }
+
+      return {
+        hex: getOptionalString(data.hex) ?? hexCode,
+        inside: parseHexcodeLandmarks(data.inside, 'inside'),
+        nearby: parseHexcodeLandmarks(data.nearby, 'nearby'),
+      };
+    },
+  });
+}
+
+function parseHexcodeLandmarks(value: unknown, containment: 'inside' | 'nearby'): HexcodeLandmark[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (!isObject(entry)) {
+      return [];
+    }
+
+    const slug = getOptionalString(entry.slug);
+    const name = getOptionalString(entry.name);
+
+    if (!slug || !name) {
+      return [];
+    }
+
+    return [
+      {
+        slug,
+        name,
+        kind: getOptionalString(entry.kind) ?? 'landmark',
+        source: getOptionalString(entry.source),
+        confidence: getOptionalNumber(entry.confidence),
+        distance_m: getOptionalNumber(entry.distance_m),
+        geometry: entry.geometry,
+        containment,
+      },
+    ];
+  });
+}
+
+export type HexcodeForPoint = {
+  code: string;
+  h3Index?: string;
+  resolution?: number;
+  center?: { lat: number; lng: number };
+  areaKm2?: number;
+  /**
+   * Omitted entirely when the point did not resolve against a known
+   * GhanaPostGPS address — check for presence, not for an empty string.
+   */
+  gpsCode?: string;
+  region?: string;
+  district?: string;
+  area?: string;
+};
+
+/**
+ * Coordinates to a hex code. Public, pure geometry.
+ *
+ * This is what lets the rest of the app hold a hex at all: search, lookup and
+ * reverse never return one, so before this every hex-keyed feature was limited
+ * to the one screen that happened to have a code already.
+ */
+export function getHexcodeForPoint({
+  lat,
+  lng,
+  res,
+}: {
+  lat: number;
+  lng: number;
+  res?: number;
+}): Promise<HexcodeForPoint> {
+  return apiRequest({
+    path: buildApiPath('/v2/hexcode', { lat, lng, res }),
+    parseData: (data) => {
+      if (!isObject(data) || typeof data.code !== 'string') {
+        throw new Error('Hexcode response has an unexpected shape.');
+      }
+
+      const center = isObject(data.center) ? data.center : undefined;
+
+      return {
+        code: data.code,
+        h3Index: getOptionalString(data.h3_index),
+        resolution: getOptionalNumber(data.resolution),
+        ...(typeof center?.lat === 'number' && typeof center.lng === 'number'
+          ? { center: { lat: center.lat, lng: center.lng } }
+          : {}),
+        areaKm2: getOptionalNumber(data.area_km2),
+        gpsCode: getOptionalString(data.gps_code),
+        region: getOptionalString(data.region),
+        district: getOptionalString(data.district),
+        area: getOptionalString(data.area),
+      };
+    },
   });
 }
 
