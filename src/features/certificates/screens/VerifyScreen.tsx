@@ -15,7 +15,7 @@ import { normalizeCertificateId } from '../utils/certificateId';
 type VerifyMode = 'address' | 'certificate';
 
 // Short enough to survive the segment at 11px on a 375pt screen. The subtitle
-// below the title carries the fuller explanation.
+// above the segments carries the fuller explanation.
 const MODES = [
   { label: 'My address', value: 'address' as const },
   { label: 'A certificate', value: 'certificate' as const },
@@ -42,7 +42,6 @@ export function VerifyScreen() {
   return (
     <Screen scroll scrollRef={scrollRef} contentStyle={styles.content}>
       <View style={styles.header}>
-        <AppText variant="title">Verify</AppText>
         <AppText variant="body" tone="muted">
           {mode === 'address'
             ? 'Prove you are at your address and get a signed certificate for it.'
@@ -170,7 +169,6 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
   },
   header: {
-    gap: spacing.sm,
     paddingTop: spacing.md,
   },
   container: {
