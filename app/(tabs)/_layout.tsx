@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { BadgeCheck, Map, Navigation, Search, UserCircle } from 'lucide-react-native';
+import { BadgeCheck, Navigation, Search, UserCircle } from 'lucide-react-native';
 
 import { colors } from '../../src/constants/colors';
 import { fontFamilies } from '../../src/constants/typography';
@@ -9,6 +9,11 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        // React Navigation renders each tab into a scene container that takes its
+        // background from the navigation theme, and that default is light. Left
+        // unset it flashes white before a screen paints — most visibly on the
+        // map tabs, which have the most to mount.
+        sceneStyle: { backgroundColor: colors.surface },
         tabBarActiveTintColor: colors.primaryLight,
         // `faint` measures 3.5:1 on `card` — under AA for a 12px tab label.
         tabBarInactiveTintColor: colors.muted,
@@ -28,13 +33,6 @@ export default function TabsLayout() {
         options={{
           title: 'Find',
           tabBarIcon: ({ color, size }) => <Search color={color} size={size} />,
-        }}
-      />
-      <Tabs.Screen
-        name="map"
-        options={{
-          title: 'Map',
-          tabBarIcon: ({ color, size }) => <Map color={color} size={size} />,
         }}
       />
       <Tabs.Screen
