@@ -73,12 +73,15 @@ type BottomSheetProps = {
    */
   minimizedLabel?: string;
   /**
-   * Snap point a tap on the handle jumps to. Tapping again while already there
-   * returns to `tapCollapsedIndex` — the Google Maps grabber behaviour.
+   * The detents a tap on the grabber walks through, in order, wrapping at the
+   * end. `[1, 2, -1]` means: medium taps up to full, full taps down to the bar,
+   * the bar taps back to medium.
+   *
+   * A tap from a detent that is not in the cycle — the user dragged there —
+   * opens the sheet to the cycle's tallest stop, so a stray tap never closes
+   * something the user was reading.
    */
-  tapExpandedIndex?: SheetSnapIndex;
-  /** Snap point a tap returns to once the sheet is already at `tapExpandedIndex`. */
-  tapCollapsedIndex?: SheetSnapIndex;
+  tapCycle?: readonly SheetSnapIndex[];
   /**
    * Tapping the card itself (not just the grabber) opens it, like tapping a
    * collapsed place card in Google Maps. Buttons inside the sheet still win the
@@ -106,6 +109,9 @@ const EXPANDED_EPSILON = 0.5;
 /** Height of the grab strip, and so of the sheet at its minimized detent. */
 const HANDLE_ZONE_HEIGHT = 48;
 
+/** Peek taps up to full, full taps back down to the peek. */
+const DEFAULT_TAP_CYCLE: readonly SheetSnapIndex[] = [0, 2];
+
 export function BottomSheet({
   children,
   snapPoints = [0.34, 0.6, 0.94],
@@ -120,8 +126,7 @@ export function BottomSheet({
   contentStyle,
   handleColor,
   minimizedLabel,
-  tapExpandedIndex = 2,
-  tapCollapsedIndex = 0,
+  tapCycle = DEFAULT_TAP_CYCLE,
   expandOnContentTap = true,
 }: BottomSheetProps) {
   const { height: windowHeight } = useWindowDimensions();
@@ -156,6 +161,7 @@ export function BottomSheet({
   const translateY = useSharedValue(offsets[positionOf(index)]);
   const gestureStartY = useSharedValue(0);
   const sharedOffsets = useSharedValue(offsets);
+  const sharedTapCycle = useSharedValue(tapCycle);
   const sharedIndexShift = useSharedValue(indexShift);
   const sharedExpandedHeight = useSharedValue(expandedHeight);
   // Inner scroll position, so the sheet only collapses on a content drag when
@@ -177,7 +183,17 @@ export function BottomSheet({
     sharedOffsets.value = offsets;
     sharedIndexShift.value = indexShift;
     sharedExpandedHeight.value = expandedHeight;
-  }, [expandedHeight, indexShift, offsets, sharedExpandedHeight, sharedIndexShift, sharedOffsets]);
+    sharedTapCycle.value = tapCycle;
+  }, [
+    expandedHeight,
+    indexShift,
+    offsets,
+    sharedExpandedHeight,
+    sharedIndexShift,
+    sharedOffsets,
+    sharedTapCycle,
+    tapCycle,
+  ]);
 
   // Animate to the controlled index (also re-settles after rotation).
   useEffect(() => {
@@ -278,7 +294,39 @@ export function BottomSheet({
       settle(event.velocityY);
     });
 
-  // Tapping the grabber expands the sheet, and taps it back down once expanded.
+  /**
+   * The next stop in the tap cycle. Read from a shared value rather than the
+   * prop so a re-render cannot leave the worklet holding a stale cycle.
+   */
+  const nextTapIndex = (current: SheetSnapIndex): SheetSnapIndex => {
+    'worklet';
+    const cycle = sharedTapCycle.value;
+
+    if (cycle.length === 0) {
+      return current;
+    }
+
+    for (let position = 0; position < cycle.length; position += 1) {
+      if (cycle[position] === current) {
+        return cycle[(position + 1) % cycle.length];
+      }
+    }
+
+    // Dragged to a detent outside the cycle. Rejoin at the tallest stop: a tap
+    // on a sheet the user has parked somewhere odd means "open this", and it
+    // puts them back on the cycle at a known point.
+    let tallest = cycle[0];
+
+    for (let position = 1; position < cycle.length; position += 1) {
+      if (cycle[position] > tallest) {
+        tallest = cycle[position];
+      }
+    }
+
+    return tallest;
+  };
+
+  // Tapping the grabber advances the sheet through its tap cycle.
   const handleTap = Gesture.Tap()
     .maxDuration(400)
     .maxDistance(PAN_ACTIVATION_DISTANCE * 2)
@@ -287,7 +335,7 @@ export function BottomSheet({
         return;
       }
 
-      snapToIndex(currentIndex.value === tapExpandedIndex ? tapCollapsedIndex : tapExpandedIndex);
+      snapToIndex(nextTapIndex(currentIndex.value));
     });
 
   // Exclusive, so the drag has outright priority: the tap only gets its turn once
@@ -409,15 +457,25 @@ export function BottomSheet({
     opacity: hasMinimized ? minimizedProgress() : 0,
   }));
 
+  /**
+   * The tallest stop in the cycle. A tap on the card body only ever opens the
+   * sheet — cycling from here would collapse the sheet under the finger of
+   * someone who tapped the text they were reading.
+   */
+  const largestTapIndex = useMemo(
+    () => tapCycle.reduce<SheetSnapIndex>((tallest, candidate) => (candidate > tallest ? candidate : tallest), -1),
+    [tapCycle],
+  );
+
   // Nested Pressables negotiate through the RN responder system, so a button
   // inside the sheet handles its own press and this never fires for it.
   const handleContentPress = useCallback(() => {
-    if (!expandOnContentTap || index === tapExpandedIndex) {
+    if (!expandOnContentTap || index === largestTapIndex) {
       return;
     }
 
-    onIndexChange(tapExpandedIndex);
-  }, [expandOnContentTap, index, onIndexChange, tapExpandedIndex]);
+    onIndexChange(largestTapIndex);
+  }, [expandOnContentTap, index, largestTapIndex, onIndexChange]);
 
   return (
     <Animated.View style={[styles.sheet, surfaceStyle, { height: expandedHeight }, sheetStyle]}>
