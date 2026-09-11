@@ -1,5 +1,11 @@
 {
   "enabledPlugins": {
     "expo@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Read(//Users/abdul_malik_musah/.claude/skills/ui-ux-pro-max/**)",
+      "Bash(python3 scripts/search.py \"navigation maps dark tool\" --design-system -p \"AfriHex Mobile\")"
+    ]
   }
 }
