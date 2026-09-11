@@ -20,6 +20,7 @@ import type { KycVerificationResult } from '../../../api/kyc';
 import { formatEnumValue, formatMetres, formatScoreAsPercent } from '../utils/certificateFormatting';
 import { CertificateAddressMap } from './CertificateAddressMap';
 import { OptionalRow } from './DetailSection';
+import { HexcodeLandmarks } from './HexcodeLandmarks';
 
 type VerificationResultCardProps = {
   result: KycVerificationResult;
@@ -133,6 +134,10 @@ export function VerificationResultCard({ result, onVerifyAnother }: Verification
               <OptionalRow label="GPS accuracy" value={formatMetres(result.gps_accuracy_m)} mono />
               <OptionalRow label="Spoof risk" value={formatEnumValue(result.spoof_risk)} mono />
             </View>
+
+            {/* The hex code is the only one the app ever holds, so this is the
+                one screen that can answer "what is actually at this address". */}
+            {result.hex_code ? <HexcodeLandmarks hexCode={result.hex_code} /> : null}
           </View>
         ) : null}
       </View>
