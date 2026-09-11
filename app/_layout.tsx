@@ -74,6 +74,13 @@ export default function RootLayout() {
                 // bar reads "(tabs)". Set here rather than per screen so no
                 // future route can reintroduce it.
                 headerBackButtonDisplayMode: 'minimal',
+                // No native header anywhere by default. It renders a full-height
+                // bar containing nothing but a chevron — the app's pattern is a
+                // compact inline back control and content that starts at the top,
+                // the way the tab screens look. A screen that needs a real bar
+                // turns it back on, as the auth callback modal does.
+                headerShown: false,
+                title: '',
                 contentStyle: { backgroundColor: colors.surface },
               }}
             >
@@ -82,7 +89,10 @@ export default function RootLayout() {
               <Stack.Screen name="auth/register" options={{ headerShown: false }} />
               <Stack.Screen name="auth/forgot-password" options={{ headerShown: false }} />
               <Stack.Screen name="auth/reset-password" options={{ headerShown: false }} />
-              <Stack.Screen name="auth/callback" options={{ title: 'Signing in', presentation: 'modal' }} />
+              <Stack.Screen
+                name="auth/callback"
+                options={{ title: 'Signing in', presentation: 'modal', headerShown: true }}
+              />
               <Stack.Screen name="account/change-password" options={{ headerShown: false }} />
               {/* Draws its own back button and heading, matching the Verify tab
                   it is pushed from — a native bar above that heading would title

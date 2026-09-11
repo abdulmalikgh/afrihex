@@ -1,6 +1,7 @@
 export { AppButton } from './AppButton';
 export { AppInput } from './AppInput';
 export { AppText } from './AppText';
+export { BackButton } from './BackButton';
 export { BottomSheet, type SheetSnapIndex } from './BottomSheet';
 export { CodeChip } from './CodeChip';
 export { EmptyState } from './EmptyState';
