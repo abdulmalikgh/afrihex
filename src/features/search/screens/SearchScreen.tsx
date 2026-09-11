@@ -4,48 +4,42 @@ import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Share, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { Alert, Linking, Pressable, Share, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LocateFixed, Navigation, Search } from 'lucide-react-native';
 
 import {
   autocompleteSearch,
+  clearRecentSearches,
+  deleteRecentSearch,
   geocodeLandmarks,
   getLandmarkAround,
-  getNearbyPlaces,
   getRecentSearches,
   type AutocompleteResult,
   type RecentSearch,
 } from '../../../api/search';
-import { BottomSheet, Screen, Toast, type SheetSnapIndex } from '../../../components';
+import { AppText, BottomSheet, Screen, Toast, type SheetSnapIndex } from '../../../components';
 import { mapStatusScrim } from '../../../constants/mapStyle';
 import { mapColors, mapElevation, mapShape, mapSize } from '../../../constants/material';
 import { spacing } from '../../../constants/spacing';
 import { hapticLight, hapticSelection, hapticSuccess, hapticWarning } from '../../../utils/haptics';
 import { useAuthSession } from '../../authentication/context/AuthSessionProvider';
 import { AddressResultCard } from '../components/AddressResultCard';
+import { AroundHere } from '../components/AroundHere';
 import { BusinessPanel } from '../components/BusinessPanel';
 import { InteractiveMap } from '../components/InteractiveMap';
-import { MapActionCircle, MapTabs } from '../components/MapActions';
+import { MapActionCircle } from '../components/MapActions';
 import { MapDivider, MapSectionHeader } from '../components/MapListRow';
 import { MapEmptyState, MapErrorState, MapLoadingState } from '../components/MapStates';
 import { MyLocationFab } from '../components/MyLocationFab';
-import { NearbyPanel } from '../components/NearbyPanel';
 import { RecentLookups, type LocalRecentLookup } from '../components/RecentLookups';
 import { SearchOverlay } from '../components/SearchOverlay';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useFindGpsSearch, type FindGpsState, type ResolvedFindGpsResult } from '../hooks/useFindGpsSearch';
 import { getAddressText, getSearchLabel, normalizeQuery } from '../utils/searchFormatting';
 import { OUTSIDE_GHANA_MESSAGE, isWithinGhana } from '../../../utils/resolveAddressQuery';
-
-type ResultTab = 'nearby' | 'business';
-
-const TAB_OPTIONS = [
-  { label: 'Nearby', value: 'nearby' },
-  { label: 'Business', value: 'business' },
-] as const;
 
 /**
  * The collapsed peek is sized in pixels, not as a fraction: it has to show the
@@ -60,7 +54,18 @@ const SHEET_MINIMIZED_HEIGHT = 48;
 const SHEET_PEEK_MIN_FRACTION = 0.22;
 const SHEET_PEEK_MAX_FRACTION = 0.46;
 
-const SEARCH_PLACEHOLDER = 'Find a place';
+/** Names what the resolver accepts: place text, a GPS or hex code, or coordinates. */
+const SEARCH_PLACEHOLDER = 'Place, hex code or lat, lng';
+
+/**
+ * Where a tap on the grabber goes next.
+ *
+ * The resting stop is the peek — the height the screen opens at, sized to show
+ * the whole result card — so the bar returns to what the user saw on arrival
+ * rather than to a taller detent they never asked for. Medium stays reachable
+ * by dragging; it is a resize, not a step in the cycle.
+ */
+const SHEET_TAP_CYCLE: readonly SheetSnapIndex[] = [0, 2, -1];
 
 /**
  * The device's coordinates, preferring a recent cached fix for speed.
@@ -116,10 +121,10 @@ function logLocation(label: string, coords: { latitude: number; longitude: numbe
 export function SearchScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { status: authStatus } = useAuthSession();
   const [query, setQuery] = useState('');
   const [isSearchPanelOpen, setIsSearchPanelOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<ResultTab>('nearby');
   const [selectedKind, setSelectedKind] = useState<string | null>(null);
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
   const [isLocationBlocked, setIsLocationBlocked] = useState(false);
@@ -129,7 +134,6 @@ export function SearchScreen() {
   const [localRecentLookups, setLocalRecentLookups] = useState<LocalRecentLookup[]>([]);
   const [sheetIndex, setSheetIndex] = useState<SheetSnapIndex>(0);
   const [stageHeight, setStageHeight] = useState(0);
-  const [nearbyRadiusKm, setNearbyRadiusKm] = useState(1);
   const [mapFocus, setMapFocus] = useState<{ latitude: number; longitude: number } | null>(null);
 
   // Live sheet height, so the location button can ride the sheet's top edge on
@@ -148,7 +152,6 @@ export function SearchScreen() {
       return [nextItem, ...dedupedItems].slice(0, 5);
     });
     setQuery(getSearchLabel(result));
-    setNearbyRadiusKm(1);
   }, []);
 
   const findGps = useFindGpsSearch({
@@ -159,12 +162,17 @@ export function SearchScreen() {
   const resolvedResult = findGps.state.status === 'success' ? findGps.state.result : null;
 
   /**
-   * The minimized bar only earns its place once there is a result card to get out
-   * of the way of. With nothing resolved the sheet is the screen's only content,
-   * so it bottoms out at the peek and the bar never appears.
+   * The minimized bar is always reachable, result or not.
+   *
+   * It used to appear only once something had resolved, on the reasoning that
+   * the bar had nothing to get out of the way of before then. But it is also the
+   * bottom of the tap cycle, so gating it meant a tap on the grabber sometimes
+   * stopped at the peek and the next tap bounced back up — the sheet appeared to
+   * refuse to close. Whatever is in it, getting it out of the way of the map is
+   * a reasonable thing to want.
    */
-  const canMinimize = Boolean(resolvedResult);
-  const lowestIndex: SheetSnapIndex = canMinimize ? -1 : 0;
+  const lowestIndex: SheetSnapIndex = -1;
+  const minimizedLabel = resolvedResult ? 'Tap to see more actions' : 'Tap to search';
 
   const autocompleteQuery = useQuery({
     queryKey: ['search', 'autocomplete', debouncedQuery, 6],
@@ -180,18 +188,46 @@ export function SearchScreen() {
     staleTime: 30_000,
   });
 
-  const nearbyQuery = useQuery({
-    queryKey: ['search', 'nearby', resolvedResult?.latitude, resolvedResult?.longitude, nearbyRadiusKm, 5],
-    queryFn: () =>
-      getNearbyPlaces({
-        lat: resolvedResult?.latitude ?? 0,
-        lng: resolvedResult?.longitude ?? 0,
-        radius: nearbyRadiusKm,
-        limit: 5,
-      }),
-    enabled: Boolean(resolvedResult) && activeTab === 'nearby',
-    staleTime: 60_000,
+  /**
+   * Both removals refetch rather than patch the cache. The list is server-ranked
+   * by frequency then recency and capped at 30, so deleting one entry can pull a
+   * different one into view — a local splice would show a stale ten.
+   */
+  const invalidateRecentSearches = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['search', 'recent'] });
+  }, [queryClient]);
+
+  const removeRecentSearchMutation = useMutation({
+    mutationFn: (recentSearch: RecentSearch) => deleteRecentSearch(recentSearch.id),
+    onSuccess: invalidateRecentSearches,
   });
+
+  const clearRecentSearchesMutation = useMutation({
+    mutationFn: clearRecentSearches,
+    onSuccess: invalidateRecentSearches,
+  });
+
+  const handleRemoveRecent = useCallback(
+    (recentSearch: RecentSearch) => {
+      hapticLight();
+      removeRecentSearchMutation.mutate(recentSearch);
+    },
+    [removeRecentSearchMutation],
+  );
+
+  const handleClearRecents = useCallback(() => {
+    Alert.alert('Clear recent searches?', 'This removes every saved search from your account.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear all',
+        style: 'destructive',
+        onPress: () => {
+          hapticWarning();
+          clearRecentSearchesMutation.mutate();
+        },
+      },
+    ]);
+  }, [clearRecentSearchesMutation]);
 
   // Always enabled once a place resolves: the counts also feed the category chips
   // floating under the search bar, not just the Business tab.
@@ -300,7 +336,6 @@ export function SearchScreen() {
       setLocationMessage(null);
       setCopyMessage(null);
       setSelectedKind(null);
-      setActiveTab('nearby');
       setQuery(submittedQuery);
       void findGps.submit(submittedQuery);
     },
@@ -385,16 +420,10 @@ export function SearchScreen() {
     }
   }, [findGps, isLocationBlocked]);
 
-  const handleTabChange = useCallback((nextTab: ResultTab) => {
-    setActiveTab(nextTab);
-    setSheetIndex(2);
-    hapticSelection();
-  }, []);
-
   const handleSelectKind = useCallback((kind: string) => {
     hapticSelection();
     setSelectedKind(kind);
-    setActiveTab('business');
+    // Picking a category is a request to read the list, so give it room.
     setSheetIndex(2);
   }, []);
 
@@ -456,20 +485,8 @@ export function SearchScreen() {
     setSheetIndex((current) => (current === lowestIndex ? current : lowestIndex));
   }, [lowestIndex]);
 
-  // The detent can disappear underneath the sheet — clearing a search while
-  // minimized — so lift it back to the peek rather than leaving the index dangling.
-  useEffect(() => {
-    if (!canMinimize) {
-      setSheetIndex((current) => (current === -1 ? 0 : current));
-    }
-  }, [canMinimize]);
-
   const handleStageLayout = useCallback((event: LayoutChangeEvent) => {
     setStageHeight(event.nativeEvent.layout.height);
-  }, []);
-
-  const handleSearchWider = useCallback(() => {
-    setNearbyRadiusKm((km) => Math.min(km * 2, 5));
   }, []);
 
   const handleCopy = useCallback(async (result: ResolvedFindGpsResult) => {
@@ -481,6 +498,50 @@ export function SearchScreen() {
   const handleOpenDirections = useCallback(() => {
     router.push('/directions');
   }, [router]);
+
+  /**
+   * Directions to the place already on screen. Handing the destination over as
+   * params rather than making the user retype it is the whole point of the
+   * split: Find resolves a place, Directions routes to it.
+   */
+  const handleOpenDirectionsTo = useCallback(
+    (result: ResolvedFindGpsResult) => {
+      router.push({
+        pathname: '/directions',
+        params: {
+          toLat: String(result.latitude),
+          toLng: String(result.longitude),
+          toLabel: getSearchLabel(result),
+        },
+      });
+    },
+    [router],
+  );
+
+  const handleAddressCard = useCallback(
+    (result: ResolvedFindGpsResult) => {
+      router.push({ pathname: '/address/card', params: { code: result.gpsCode } });
+    },
+    [router],
+  );
+
+  /**
+   * Starts a meetup at the place on screen. The session is created on the next
+   * screen rather than here, so a mis-tap does not leave a live session behind.
+   */
+  const handleMeetHere = useCallback(
+    (result: ResolvedFindGpsResult) => {
+      router.push({
+        pathname: '/meet',
+        params: {
+          lat: String(result.latitude),
+          lng: String(result.longitude),
+          label: getSearchLabel(result),
+        },
+      });
+    },
+    [router],
+  );
 
   const handleOpenAccount = useCallback(() => {
     router.push('/account');
@@ -544,6 +605,9 @@ export function SearchScreen() {
           onClearQuery={handleClearQuery}
           onSubmit={handleSubmit}
           onAccountPress={handleOpenAccount}
+          // Opens the search panel, where the field's own mic lives — the bar
+          // is a button, not an input, so it has nothing to dictate into.
+          onVoicePress={() => setIsSearchPanelOpen(true)}
           suggestions={suggestions}
           isSuggestionsLoading={autocompleteQuery.isFetching}
           suggestionsError={autocompleteQuery.error instanceof Error ? autocompleteQuery.error.message : null}
@@ -578,36 +642,32 @@ export function SearchScreen() {
           surfaceStyle={styles.sheetSurface}
           contentStyle={styles.sheetContent}
           handleColor={mapColors.outline}
-          minimizedLabel={canMinimize ? 'Tap to see more actions' : undefined}
+          minimizedLabel={minimizedLabel}
+          // A second tap goes all the way down to the bar, not back to the peek:
+          // the point of tapping a sheet closed is to see the map under it.
+          tapCycle={SHEET_TAP_CYCLE}
         >
           <SheetContent
             findState={findGps.state}
-            activeTab={activeTab}
-            onTabChange={handleTabChange}
             onDidYouMeanPress={handleSubmit}
             onRetry={handleSubmit}
             onOpenSearch={() => setIsSearchPanelOpen(true)}
             onCurrentLocation={() => void handleCurrentLocation()}
             isLocating={isLocating}
-            onOpenMaps={openMaps}
-            onOpenDirections={openDirections}
+            onOpenDirections={handleOpenDirectionsTo}
             onOpenDirectionsTab={handleOpenDirections}
             onCopy={handleCopy}
             onShare={shareResult}
+            onAddressCard={handleAddressCard}
+            onMeetHere={handleMeetHere}
             recentSearches={serverRecentSearches}
             localRecentLookups={localRecentLookups}
             showServerRecent={isAuthenticated}
             isRecentLoading={isAuthenticated && recentSearchesQuery.isPending}
             onRecentPress={handleRecentPress}
             onLocalRecentPress={handleLocalRecentPress}
-            nearbyProps={{
-              isLoading: nearbyQuery.isPending,
-              errorMessage: nearbyQuery.error instanceof Error ? nearbyQuery.error.message : null,
-              locations: nearbyQuery.data?.locations ?? [],
-              radiusKm: nearbyRadiusKm,
-              onRetry: () => void nearbyQuery.refetch(),
-              onSearchWider: handleSearchWider,
-            }}
+            onRemoveRecent={handleRemoveRecent}
+            onClearRecents={handleClearRecents}
             businessProps={{
               selectedKind,
               onSelectKind: handleSelectKind,
@@ -631,49 +691,49 @@ export function SearchScreen() {
 
 type SheetContentProps = {
   findState: FindGpsState;
-  activeTab: ResultTab;
-  onTabChange: (tab: ResultTab) => void;
   onDidYouMeanPress: (query: string) => void;
   onRetry: (query: string) => void;
   onOpenSearch: () => void;
   onCurrentLocation: () => void;
   isLocating: boolean;
-  onOpenMaps: (result: ResolvedFindGpsResult) => void;
   onOpenDirections: (result: ResolvedFindGpsResult) => void;
   onOpenDirectionsTab: () => void;
   onCopy: (result: ResolvedFindGpsResult) => void;
   onShare: (result: ResolvedFindGpsResult) => void;
+  onAddressCard: (result: ResolvedFindGpsResult) => void;
+  onMeetHere: (result: ResolvedFindGpsResult) => void;
   recentSearches: RecentSearch[];
   localRecentLookups: LocalRecentLookup[];
   showServerRecent: boolean;
   isRecentLoading: boolean;
   onRecentPress: (recentSearch: RecentSearch) => void;
   onLocalRecentPress: (recentLookup: LocalRecentLookup) => void;
-  nearbyProps: Parameters<typeof NearbyPanel>[0];
+  onRemoveRecent: (recentSearch: RecentSearch) => void;
+  onClearRecents: () => void;
   businessProps: Parameters<typeof BusinessPanel>[0];
 };
 
 function SheetContent({
   findState,
-  activeTab,
-  onTabChange,
   onDidYouMeanPress,
   onRetry,
   onOpenSearch,
   onCurrentLocation,
   isLocating,
-  onOpenMaps,
   onOpenDirections,
   onOpenDirectionsTab,
   onCopy,
   onShare,
+  onAddressCard,
+  onMeetHere,
   recentSearches,
   localRecentLookups,
   showServerRecent,
   isRecentLoading,
   onRecentPress,
   onLocalRecentPress,
-  nearbyProps,
+  onRemoveRecent,
+  onClearRecents,
   businessProps,
 }: SheetContentProps) {
   if (findState.status === 'loading') {
@@ -710,20 +770,14 @@ function SheetContent({
       <View>
         <AddressResultCard
           result={findState.result}
-          onOpenMaps={onOpenMaps}
           onOpenDirections={onOpenDirections}
           onCopy={onCopy}
           onShare={onShare}
+          onAddressCard={onAddressCard}
+          onMeetHere={onMeetHere}
         />
 
-        <MapTabs
-          options={TAB_OPTIONS}
-          value={activeTab}
-          onChange={onTabChange}
-          accessibilityLabel="Result detail tabs"
-        />
-
-        {activeTab === 'nearby' ? <NearbyPanel {...nearbyProps} /> : <BusinessPanel {...businessProps} />}
+        <AroundHere businessProps={businessProps} />
       </View>
     );
   }
@@ -745,7 +799,27 @@ function SheetContent({
       <MapDivider inset={false} />
 
       <View style={styles.recentHeader}>
-        <MapSectionHeader title="Recent" />
+        <MapSectionHeader
+          title="Recent"
+          // Only offered when the server list is what is on screen: clearing is
+          // an account action, and there is nothing on the server to clear for a
+          // signed-out visitor looking at this session's own lookups.
+          action={
+            showServerRecent && recentSearches.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Clear all recent searches"
+                onPress={onClearRecents}
+                hitSlop={8}
+                style={({ pressed }) => [styles.clearRecents, pressed && styles.clearRecentsPressed]}
+              >
+                <AppText variant="caption" style={styles.clearRecentsLabel}>
+                  Clear all
+                </AppText>
+              </Pressable>
+            ) : null
+          }
+        />
       </View>
 
       <RecentLookups
@@ -754,24 +828,11 @@ function SheetContent({
         showServerRecent={showServerRecent}
         isLoading={isRecentLoading}
         onRecentPress={onRecentPress}
+        onRemoveRecent={showServerRecent ? onRemoveRecent : undefined}
         onLocalRecentPress={onLocalRecentPress}
       />
     </View>
   );
-}
-
-async function openMaps(result: ResolvedFindGpsResult) {
-  if (!result.googleMapsUrl) {
-    return;
-  }
-
-  await Linking.openURL(result.googleMapsUrl);
-}
-
-async function openDirections(result: ResolvedFindGpsResult) {
-  const url = `https://www.google.com/maps/dir/?api=1&destination=${result.latitude},${result.longitude}`;
-
-  await Linking.openURL(url);
 }
 
 /** The code alone — it is what gets pasted into a chat or read down a phone. */
@@ -819,6 +880,17 @@ const styles = StyleSheet.create({
   recentHeader: {
     paddingTop: spacing.lg,
     paddingBottom: spacing.xs,
+  },
+  clearRecents: {
+    minHeight: 32,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
+  },
+  clearRecentsPressed: {
+    opacity: 0.6,
+  },
+  clearRecentsLabel: {
+    color: mapColors.primary,
   },
   stateInset: {
     paddingHorizontal: spacing.lg,

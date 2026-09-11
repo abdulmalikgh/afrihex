@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { ChevronDown, ChevronUp, Copy, ExternalLink, Navigation, Share2 } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, Copy, IdCard, Navigation, Share2, Users } from 'lucide-react-native';
 
 import { AppText } from '../../../components';
 import { mapColors, mapShape } from '../../../constants/material';
@@ -8,14 +8,16 @@ import { spacing } from '../../../constants/spacing';
 import { formatCoordinate, getPlaceSubtitle, getPlaceTitle, isLowQuality } from '../utils/searchFormatting';
 import { MapActionCircle } from './MapActions';
 import { MapDivider } from './MapListRow';
+import { PlaceHexcode } from './PlaceHexcode';
 import type { ResolvedFindGpsResult } from '../hooks/useFindGpsSearch';
 
 type AddressResultCardProps = {
   result: ResolvedFindGpsResult;
-  onOpenMaps: (result: ResolvedFindGpsResult) => void;
   onOpenDirections: (result: ResolvedFindGpsResult) => void;
   onCopy: (result: ResolvedFindGpsResult) => void;
   onShare: (result: ResolvedFindGpsResult) => void;
+  onAddressCard: (result: ResolvedFindGpsResult) => void;
+  onMeetHere: (result: ResolvedFindGpsResult) => void;
 };
 
 /**
@@ -29,10 +31,11 @@ type AddressResultCardProps = {
  */
 export function AddressResultCard({
   result,
-  onOpenMaps,
   onOpenDirections,
   onCopy,
   onShare,
+  onAddressCard,
+  onMeetHere,
 }: AddressResultCardProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const approximate = isLowQuality(result.qualityScore);
@@ -72,12 +75,34 @@ export function AddressResultCard({
         <MapActionCircle label="Directions" icon={Navigation} variant="filled" onPress={() => onOpenDirections(result)} />
         <MapActionCircle label="Copy" icon={Copy} onPress={() => onCopy(result)} />
         <MapActionCircle label="Share" icon={Share2} onPress={() => onShare(result)} />
-        <MapActionCircle
-          label="Maps"
-          icon={ExternalLink}
-          disabled={!result.googleMapsUrl}
-          onPress={() => onOpenMaps(result)}
-        />
+      </View>
+
+      {/* A second row rather than two more circles above: five action circles
+          stop being tappable side by side on a small phone. */}
+      <View style={styles.secondaryActions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Make a shareable address card"
+          onPress={() => onAddressCard(result)}
+          style={({ pressed }) => [styles.secondaryAction, pressed && styles.pressed]}
+        >
+          <IdCard color={mapColors.primary} size={18} />
+          <AppText variant="caption" style={styles.secondaryLabel}>
+            Address card
+          </AppText>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Start a meetup here"
+          onPress={() => onMeetHere(result)}
+          style={({ pressed }) => [styles.secondaryAction, pressed && styles.pressed]}
+        >
+          <Users color={mapColors.primary} size={18} />
+          <AppText variant="caption" style={styles.secondaryLabel}>
+            Meet here
+          </AppText>
+        </Pressable>
       </View>
 
       <MapDivider inset={false} />
@@ -102,6 +127,7 @@ export function AddressResultCard({
             value={`${formatCoordinate(result.latitude)}, ${formatCoordinate(result.longitude)}`}
             selectable
           />
+          <PlaceHexcode lat={result.latitude} lng={result.longitude} />
         </View>
       ) : null}
 
@@ -179,6 +205,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingTop: spacing.lg,
     paddingBottom: spacing.lg,
+  },
+  secondaryActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+  secondaryAction: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    minHeight: 44,
+    borderRadius: mapShape.full,
+    borderWidth: 1,
+    borderColor: mapColors.outlineVariant,
+    paddingHorizontal: spacing.md,
+  },
+  secondaryLabel: {
+    color: mapColors.primary,
   },
   place: {
     gap: spacing.xs,
