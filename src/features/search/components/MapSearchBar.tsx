@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Search, UserRound, X } from 'lucide-react-native';
+import { Mic, Search, UserRound, X } from 'lucide-react-native';
 
 import { AppText } from '../../../components';
 import { mapColors, mapElevation, mapPressedLayer, mapShape, mapSize } from '../../../constants/material';
@@ -12,6 +12,7 @@ type MapSearchBarProps = {
   onPress: () => void;
   onClear: () => void;
   onAccountPress: () => void;
+  onVoicePress: () => void;
 };
 
 /**
@@ -20,7 +21,14 @@ type MapSearchBarProps = {
  * which is where the keyboard, recents and suggestions live — the same split
  * Google Maps uses so the map is never squeezed by a half-open keyboard.
  */
-export function MapSearchBar({ value, placeholder, onPress, onClear, onAccountPress }: MapSearchBarProps) {
+export function MapSearchBar({
+  value,
+  placeholder,
+  onPress,
+  onClear,
+  onAccountPress,
+  onVoicePress,
+}: MapSearchBarProps) {
   const hasValue = value.trim().length > 0;
 
   return (
@@ -48,6 +56,19 @@ export function MapSearchBar({ value, placeholder, onPress, onClear, onAccountPr
           <X color={mapColors.onSurfaceVariant} size={20} />
         </Pressable>
       ) : null}
+
+      {/* Where Google and Apple both put it: in the search field itself, so
+          speaking a destination is a peer of typing one rather than a feature
+          you have to go looking for. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Speak a destination"
+        onPress={onVoicePress}
+        hitSlop={6}
+        style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+      >
+        <Mic color={mapColors.onSurfaceVariant} size={20} />
+      </Pressable>
 
       <Pressable
         accessibilityRole="button"

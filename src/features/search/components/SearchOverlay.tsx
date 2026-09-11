@@ -20,6 +20,7 @@ type SearchOverlayProps = {
   onClearQuery: () => void;
   onSubmit: (query: string) => void;
   onAccountPress: () => void;
+  onVoicePress: () => void;
   suggestions: AutocompleteResult[];
   isSuggestionsLoading: boolean;
   suggestionsError: string | null;
@@ -49,6 +50,7 @@ export function SearchOverlay({
   onClearQuery,
   onSubmit,
   onAccountPress,
+  onVoicePress,
   suggestions,
   isSuggestionsLoading,
   suggestionsError,
@@ -93,6 +95,7 @@ export function SearchOverlay({
           onPress={onOpenPanel}
           onClear={onClearQuery}
           onAccountPress={onAccountPress}
+          onVoicePress={onVoicePress}
         />
       </View>
 

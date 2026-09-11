@@ -1,8 +1,10 @@
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { ArrowLeft, MapPin, Search, X } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Mic, Search, X } from 'lucide-react-native';
 
+import { AppText } from '../../../components';
 import { mapColors, mapElevation, mapPressedLayer, mapShape, mapSize } from '../../../constants/material';
 import { spacing } from '../../../constants/spacing';
+import { useVoiceInput } from '../../navigation/hooks/useVoiceInput';
 import { fontFamilies, fontSizes } from '../../../constants/typography';
 import type { AutocompleteResult, RecentSearch } from '../../../api/search';
 import { MapCard, MapDivider, MapListRow, MapSectionHeader } from './MapListRow';
@@ -56,6 +58,14 @@ export function SearchPanel({
   onLocalRecentPress,
 }: SearchPanelProps) {
   const trimmedQuery = query.trim();
+  const voice = useVoiceInput({
+    // Straight into the field, then submitted — the same path a typed query
+    // takes, so codes and coordinates still resolve the way they always did.
+    onTranscript: (text) => {
+      onChangeText(text);
+      onSubmit(text);
+    },
+  });
   const isSearching = trimmedQuery.length >= MIN_SUGGESTION_LENGTH;
 
   return (
@@ -85,7 +95,22 @@ export function SearchPanel({
           style={styles.input}
         />
 
-        {isSuggestionsLoading ? <ActivityIndicator size="small" color={mapColors.primary} /> : null}
+        {isSuggestionsLoading || voice.isParsing ? (
+          <ActivityIndicator size="small" color={mapColors.primary} />
+        ) : null}
+
+        {/* Dictation fills this field rather than opening anything — speaking a
+            place and typing one should land in the same box. Shown even when the
+            native recogniser is absent, so tapping it can say so. */}
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={voice.isListening ? 'Stop listening' : 'Speak a place'}
+            accessibilityState={{ busy: voice.isListening }}
+            onPress={voice.toggle}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+          >
+            <Mic color={voice.isListening ? mapColors.primary : mapColors.onSurfaceVariant} size={20} />
+        </Pressable>
 
         {trimmedQuery.length > 0 ? (
           <Pressable
@@ -102,6 +127,12 @@ export function SearchPanel({
           </View>
         )}
       </View>
+
+      {voice.errorMessage ? (
+        <AppText variant="caption" tone="danger" style={styles.voiceError}>
+          {voice.errorMessage}
+        </AppText>
+      ) : null}
 
       <ScrollView
         style={styles.results}
@@ -168,6 +199,10 @@ const styles = StyleSheet.create({
     backgroundColor: mapColors.surface,
     paddingHorizontal: spacing.xs,
     ...mapElevation.level2,
+  },
+  voiceError: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
   },
   iconButton: {
     width: mapSize.iconButton,
