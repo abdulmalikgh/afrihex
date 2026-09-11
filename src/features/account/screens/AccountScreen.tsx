@@ -1,12 +1,21 @@
 import { router } from 'expo-router';
-import { BarChart3, Check, KeyRound, LockKeyhole, LogOut, TrendingUp } from 'lucide-react-native';
-import { StyleSheet, View, type DimensionValue } from 'react-native';
+import {
+  BarChart3,
+  Check,
+  KeyRound,
+  LockKeyhole,
+  LogOut,
+  RefreshCw,
+  TrendingUp,
+} from 'lucide-react-native';
+import { Alert, StyleSheet, View, type DimensionValue } from 'react-native';
 
 import { AppButton, AppText, ErrorBanner, GoogleIcon, LoadingState, ResultCard, Screen } from '../../../components';
 import { colors } from '../../../constants/colors';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
 import { useAuthSession } from '../../authentication/context/AuthSessionProvider';
+import { MoreToolsCard } from '../components/MoreToolsCard';
 
 export function AccountScreen() {
   const {
@@ -19,7 +28,25 @@ export function AccountScreen() {
     isSubmitting,
     startGoogleSignIn,
     logout,
+    rotateKey,
+    isRotatingKey,
   } = useAuthSession();
+
+  /**
+   * Confirmed before it runs: the old key dies immediately, so anything else
+   * signed in with it — another phone, a script — stops working with no way to
+   * undo it. This session survives, because the response carries the new key.
+   */
+  const confirmRotateKey = () => {
+    Alert.alert(
+      'Rotate your API key?',
+      'Your current key stops working straight away. Anywhere else you are signed in with it will need to sign in again. This phone stays signed in.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Rotate key', style: 'destructive', onPress: () => void rotateKey() },
+      ],
+    );
+  };
 
   if (status === 'loading' || (status === 'authenticated' && isUserLoading && !user)) {
     return <LoadingState label="Loading account" />;
@@ -51,6 +78,8 @@ export function AccountScreen() {
             Create account
           </AppButton>
         </View>
+
+        <MoreToolsCard />
 
         <ResultCard title="Account unlocks" description="Keep your AfriHex activity available across devices.">
           <View style={styles.benefits}>
@@ -140,6 +169,8 @@ export function AccountScreen() {
         </View>
       </ResultCard>
 
+      <MoreToolsCard />
+
       <ResultCard
         title="Security"
         description="Manage how you sign in to your AfriHex account."
@@ -148,6 +179,22 @@ export function AccountScreen() {
         <AppButton variant="secondary" onPress={() => router.push('/account/change-password')}>
           Change password
         </AppButton>
+
+        <View style={styles.rotateRow}>
+          <AppText variant="caption" tone="muted">
+            {user.key_prefix
+              ? `Your API key starts ${user.key_prefix}. Rotate it if it may have leaked.`
+              : 'Rotate your API key if it may have leaked.'}
+          </AppText>
+          <AppButton
+            variant="ghost"
+            icon={<RefreshCw color={colors.text} size={18} />}
+            onPress={confirmRotateKey}
+            loading={isRotatingKey}
+          >
+            Rotate API key
+          </AppButton>
+        </View>
       </ResultCard>
 
       <AppButton variant="ghost" icon={<LogOut color={colors.text} size={18} />} onPress={logout}>
@@ -251,5 +298,12 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: radius.round,
     backgroundColor: colors.primary,
+  },
+  rotateRow: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.md,
   },
 });
