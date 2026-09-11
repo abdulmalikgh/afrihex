@@ -22,6 +22,12 @@ export type ResolvedFindGpsResult = {
   postcode?: string;
   qualityScore?: number;
   googleMapsUrl?: string;
+  /**
+   * Set only when the user typed a hex code. Routing prefers it over the
+   * coordinates: a hex names the cell exactly, where `center_latitude` is the
+   * middle of that cell and can sit in the wrong compound on a corner plot.
+   */
+  hexCode?: string;
   source: 'lookup' | 'search' | 'reverse';
 };
 
@@ -31,18 +37,37 @@ export type AddressResolution =
 
 /**
  * The FindGPS fallback chain (mirrors web `FindGPS.tsx`): GPS/hex codes short-circuit to
- * a direct lookup; free text goes through address parsing, then place search, then a
- * reverse lookup, then anchor landmarks — trying each only when the previous step
- * returns nothing usable. Shared by FindGPS and Directions so both features resolve a
- * typed query the same way instead of maintaining two copies of this chain.
+ * a direct lookup, a typed coordinate pair goes straight to a reverse lookup, and free
+ * text goes through address parsing, then place search, then a reverse lookup, then
+ * anchor landmarks — trying each only when the previous step returns nothing usable.
+ * Shared by FindGPS and Directions so both features resolve a typed query the same way
+ * instead of maintaining two copies of this chain.
  */
 export async function resolveAddressQuery(rawQuery: string): Promise<AddressResolution> {
   const query = rawQuery.trim();
 
   if (isCodeLike(query)) {
-    const lookup = await lookupAddress(query);
+    // Upper-cased before the lookup: codes are canonically upper case, and a
+    // phone keyboard hands us whatever case autocorrect felt like.
+    const code = query.toUpperCase();
+    const lookup = await lookupAddress(code);
+    const result = mapLookupResult(lookup, 'lookup');
 
-    return { status: 'resolved', result: mapLookupResult(lookup, 'lookup'), resultType: 'gps' };
+    return {
+      status: 'resolved',
+      result: isHexCode(code) ? { ...result, hexCode: code } : result,
+      resultType: 'gps',
+    };
+  }
+
+  const coordinates = parseCoordinatePair(query);
+
+  if (coordinates) {
+    return {
+      status: 'resolved',
+      result: await resolveCoordinates(coordinates.lat, coordinates.lng),
+      resultType: 'gps',
+    };
   }
 
   const parsedAddress = await parseAddress(query);
@@ -196,7 +221,54 @@ export function uniqueLocalityParts(parts: Array<string | undefined | null>) {
 export function isCodeLike(query: string) {
   const normalized = query.trim().toUpperCase();
 
-  return /^[A-Z]{1,4}-?\d{3}-?\d{4}$/.test(normalized) || /^AF-GH-[A-Z0-9-]+$/.test(normalized);
+  return /^[A-Z]{1,4}-?\d{3}-?\d{4}$/.test(normalized) || HEX_CODE_PATTERN.test(normalized);
+}
+
+/** e.g. `AF-GH-7-0GXTJJB0ZZZZZ`. The country and resolution segments are fixed-width. */
+const HEX_CODE_PATTERN = /^AF-GH-[A-Z0-9-]+$/;
+
+export function isHexCode(query: string) {
+  return HEX_CODE_PATTERN.test(query.trim().toUpperCase());
+}
+
+/**
+ * A typed coordinate pair, e.g. `5.6037, -0.1870` — what you get from pasting
+ * out of Google Maps, a WhatsApp location, or a fleet spreadsheet.
+ *
+ * Deliberately strict about the separator. A comma is unambiguous; a space is
+ * only accepted when both halves carry a decimal point, so an ordinary search
+ * like "block 7 14" is never mistaken for a position. Anything that parses but
+ * is not a real latitude/longitude falls through to normal text search rather
+ * than erroring, because at that point it is far likelier to be an address.
+ */
+export function parseCoordinatePair(query: string): { lat: number; lng: number } | null {
+  const trimmed = query.trim().replace(/^\(|\)$/g, '').trim();
+  const hasComma = trimmed.includes(',');
+  const parts = (hasComma ? trimmed.split(',') : trimmed.split(/\s+/)).map((part) => part.trim());
+
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const [rawLat, rawLng] = parts;
+  const numberPattern = /^[+-]?\d{1,3}(\.\d+)?$/;
+
+  if (!numberPattern.test(rawLat) || !numberPattern.test(rawLng)) {
+    return null;
+  }
+
+  if (!hasComma && !(rawLat.includes('.') && rawLng.includes('.'))) {
+    return null;
+  }
+
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
+
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return null;
+  }
+
+  return { lat, lng };
 }
 
 function getParsedCode(parsed: Record<string, unknown>) {
