@@ -75,6 +75,20 @@ export function getUsageSummary(): Promise<UsageSummary> {
   });
 }
 
+/**
+ * Issues a new API key and revokes the old one, returning the same
+ * `{ token, user }` shape as login — so the caller persists it exactly like a
+ * fresh sign-in. Every other device holding the previous key is signed out.
+ */
+export function rotateApiKey(): Promise<AuthSession> {
+  return apiRequest({
+    path: '/v2/me/rotate',
+    method: 'POST',
+    authenticated: true,
+    parseData: parseAuthSession,
+  });
+}
+
 export function requestPasswordReset(body: ForgotPasswordRequest): Promise<void> {
   return apiRequest({
     path: '/v2/auth/forgot-password',

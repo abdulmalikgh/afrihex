@@ -19,6 +19,7 @@ import {
   getUsageSummary,
   loginWithEmail,
   registerWithEmail,
+  rotateApiKey,
 } from '../../../api/auth';
 import {
   clearStoredAuthToken,
@@ -63,6 +64,9 @@ type AuthSessionContextValue = {
   exchangeGoogleCallbackCode: (code: string) => Promise<void>;
   clearError: () => void;
   logout: () => Promise<void>;
+  /** Issues a new API key and revokes the old one. Signs out other devices. */
+  rotateKey: () => Promise<void>;
+  isRotatingKey: boolean;
 };
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
@@ -155,6 +159,23 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  /**
+   * The response carries a full session, so it persists exactly like a sign-in.
+   * That matters: the old key is dead the moment this returns, and leaving the
+   * stored one in place would 401 the very next authenticated call.
+   */
+  const rotateKeyMutation = useMutation({
+    mutationFn: rotateApiKey,
+    onSuccess: persistSession,
+    onError: (error) => {
+      setErrorMessage(getErrorMessage(error));
+    },
+  });
+
+  const rotateKey = useCallback(async () => {
+    await rotateKeyMutation.mutateAsync();
+  }, [rotateKeyMutation]);
+
   const clearError = useCallback(() => {
     setErrorMessage(null);
   }, []);
@@ -245,10 +266,14 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       exchangeGoogleCallbackCode,
       clearError,
       logout,
+      rotateKey,
+      isRotatingKey: rotateKeyMutation.isPending,
     }),
     [
       clearError,
       errorMessage,
+      rotateKey,
+      rotateKeyMutation.isPending,
       exchangeGoogleCallbackCode,
       googleExchangeMutation.isPending,
       login,
