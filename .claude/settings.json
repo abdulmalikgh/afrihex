@@ -13,7 +13,15 @@
       "Bash(node -p \"require\\('./node_modules/react-native-view-shot/package.json'\\).version\")",
       "Bash(curl -s 'https://maps.googleapis.com/maps/api/staticmap?center=5.6,-0.18&zoom=12&size=100x100&key=AIzaSyD__x4dj4QD3bdFC303KSvDY1DxdsqfgZU' --max-time 20 -o /tmp/gm.out -w 'HTTP %{http_code}  type:%{content_type}\\\\n')",
       "Read(//tmp/**)",
-      "Bash(curl -s 'https://maps.googleapis.com/maps/api/geocode/json?address=Accra&key=AIzaSyD__x4dj4QD3bdFC303KSvDY1DxdsqfgZU' --max-time 20)"
+      "Bash(curl -s 'https://maps.googleapis.com/maps/api/geocode/json?address=Accra&key=AIzaSyD__x4dj4QD3bdFC303KSvDY1DxdsqfgZU' --max-time 20)",
+      "Bash(adb devices *)",
+      "Bash(npx eas-cli*)",
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{try{const c=JSON.parse\\(s\\);console.log\\('android.config:',JSON.stringify\\(c.android&&c.android.config,null,2\\)\\);console.log\\('package:',c.android&&c.android.package\\);}catch\\(e\\){console.log\\('PARSE FAIL'\\);console.log\\(s.slice\\(0,500\\)\\)}}\\)\")",
+      "Bash(git checkout *)",
+      "Bash(git stash *)",
+      "Bash(env -u GOOGLE_MAPS_ANDROID_API_KEY npx expo config --type prebuild --json)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{try{const j=JSON.parse\\(s\\);console.log\\('status:',j.status\\);if\\(j.error_message\\)console.log\\('error_message:',j.error_message\\);}catch\\(e\\){console.log\\(s.slice\\(0,300\\)\\)}}\\)\")"
     ]
   },
   "enabledPlugins": {
