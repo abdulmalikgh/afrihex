@@ -1,11 +1,22 @@
 {
-  "enabledPlugins": {
-    "expo@claude-plugins-official": true
-  },
   "permissions": {
     "allow": [
       "Read(//Users/abdul_malik_musah/.claude/skills/ui-ux-pro-max/**)",
-      "Bash(python3 scripts/search.py \"navigation maps dark tool\" --design-system -p \"AfriHex Mobile\")"
+      "Bash(python3 scripts/search.py \"navigation maps dark tool\" --design-system -p \"AfriHex Mobile\")",
+      "Bash(python3 -c ' *)",
+      "Bash(export GOOGLE_MAPS_ANDROID_API_KEY=TEST_KEY)",
+      "Bash(npx expo *)",
+      "Bash(node -e ' *)",
+      "Bash(export GOOGLE_MAPS_ANDROID_API_KEY=AIzaSyD__x4dj4QD3bdFC303KSvDY1DxdsqfgZU)",
+      "Bash(node -p \"const p=require\\('./package.json'\\).dependencies; ['react-native','expo','react-native-maps','react-native-view-shot','expo-media-library','expo-speech-recognition'].map\\(k=>k+': '+p[k]\\).join\\('\\\\n'\\)\")",
+      "Bash(node -p \"JSON.stringify\\(require\\('./node_modules/react-native-view-shot/package.json'\\).codegenConfig||'none'\\)\")",
+      "Bash(node -p \"require\\('./node_modules/react-native-view-shot/package.json'\\).version\")",
+      "Bash(curl -s 'https://maps.googleapis.com/maps/api/staticmap?center=5.6,-0.18&zoom=12&size=100x100&key=AIzaSyD__x4dj4QD3bdFC303KSvDY1DxdsqfgZU' --max-time 20 -o /tmp/gm.out -w 'HTTP %{http_code}  type:%{content_type}\\\\n')",
+      "Read(//tmp/**)",
+      "Bash(curl -s 'https://maps.googleapis.com/maps/api/geocode/json?address=Accra&key=AIzaSyD__x4dj4QD3bdFC303KSvDY1DxdsqfgZU' --max-time 20)"
     ]
+  },
+  "enabledPlugins": {
+    "expo@claude-plugins-official": true
   }
 }

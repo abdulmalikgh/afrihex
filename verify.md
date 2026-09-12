@@ -15,7 +15,7 @@ routing (noted inline below, verified against the actual server code and
 | `GET /v2/certificates/{id}/verify` | **None** | Check a cert's status (valid / revoked). Your main integration point after that. |
 | `GET /v2/certificates/{id}/pdf` | **None** | Get a shareable, printable PDF (has a QR code baked in) |
 | `GET /v2/certificates/{id}` | `X-API-Key` | Full JSON incl. subject/address/integrity (PII) — only if you need the raw payload |
-| `GET /.well-known/verification-key.json` | None | Public key set, only needed for offline signature verification (see [Should you verify offline?](#should-you-verify-offline)) |
+
 
 Base URL: `https://api.afrihex.com`
 
