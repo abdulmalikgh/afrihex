@@ -8,6 +8,7 @@ import { InstrumentSans_700Bold } from '@expo-google-fonts/instrument-sans/700Bo
 import { SplineSansMono_500Medium } from '@expo-google-fonts/spline-sans-mono/500Medium';
 import { SplineSansMono_600SemiBold } from '@expo-google-fonts/spline-sans-mono/600SemiBold';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as Sentry from '@sentry/react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -18,6 +19,34 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { colors } from '../src/constants/colors';
 import { AuthSessionProvider } from '../src/features/authentication/context/AuthSessionProvider';
+
+// Initialised at module scope, before any component renders, so a failure
+// during the first render is still reported. Anything that throws earlier than
+// this — a module that fails to resolve while the bundle is evaluating, or a
+// native crash during startup — happens before the handlers are installed and
+// will not be captured.
+const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
+
+if (!dsn) {
+  // Deliberately not thrown. A missing DSN means no reporting, which is bad,
+  // but throwing here would crash the app on launch — the exact failure being
+  // investigated.
+  console.warn('EXPO_PUBLIC_SENTRY_DSN is unset; Sentry will not report anything.');
+}
+
+Sentry.init({
+  dsn,
+  enabled: Boolean(dsn),
+  // Marks whether a launch ended in a crash, which is how a crash-on-launch
+  // shows up as a signal rather than just silence.
+  enableAutoSessionTracking: true,
+  attachStacktrace: true,
+  // A crash kills the process before an event can upload, so the native
+  // handlers persist it to disk and send it on the *next* launch. The app has
+  // to be opened a second time for a crash report to arrive.
+  enableNativeCrashHandling: true,
+  enableNdkScopeSync: true,
+});
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -31,7 +60,7 @@ const queryClient = new QueryClient({
   },
 });
 
-export default function RootLayout() {
+function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     InstrumentSans_400Regular,
     InstrumentSans_500Medium,
@@ -105,3 +134,7 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+// Wraps the root in Sentry's error boundary and touches up the React component
+// stacks on reported events.
+export default Sentry.wrap(RootLayout);

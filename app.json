@@ -40,6 +40,13 @@
           "photosPermission": "Allow AfriHex to save your address card to your photos.",
           "isAccessMediaLocationEnabled": false
         }
+      ],
+      [
+        "@sentry/react-native",
+        {
+          "organization": "afrihex",
+          "project": "react-native"
+        }
       ]
     ],
     "ios": {
