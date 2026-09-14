@@ -17,6 +17,9 @@
       },
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://3c09e932289d9ec67310f752a8580858@o4512083977961472.ingest.us.sentry.io/4512083987464192"
       }
     },
     "preview-simulator": {
@@ -27,7 +30,10 @@
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://3c09e932289d9ec67310f752a8580858@o4512083977961472.ingest.us.sentry.io/4512083987464192"
+      }
     }
   },
   "submit": {
