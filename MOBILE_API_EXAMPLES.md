@@ -169,6 +169,14 @@ GET /v2/landmarks/geocode?q=kaneshie market&limit=3
 Landmarks with a resolved photo also return `photo_url` (Wikimedia thumbnail) — useful for
 map pins/tooltips.
 
+A small subset of well-known landmarks (airports, forts, markets, monuments — anywhere
+with a Wikipedia/Wikidata reference, ~900-1,000 of ~88k total) also return
+`story_summary` and `story_url`: an optional "history of this place" blurb sourced from
+Wikipedia (CC BY-SA — `story_url` must be shown alongside `story_summary` if you display
+it, not just stored). Both fields are omitted entirely when there's no story, same
+convention as `photo_url` — treat it as a collapsed "Learn more about this place" affordance,
+not a guaranteed field.
+
 ### 1g. Nearby places (results are `locations`, each wrapping a `location`)
 
 ```
@@ -388,7 +396,21 @@ X-API-Key: <token>
 ```
 
 - `coordinates` is `[lng, lat]` pairs (GeoJSON order); step `coordinates` too.
-- `mode`: `driving | foot | bicycle | motor_scooter | okada` — omitting `mode` (or passing `""`) also defaults to `driving`. `motor_scooter` and `okada` are aliases.
+- `mode`: `driving | foot | bicycle | motor_scooter | okada | truck` — omitting `mode` (or passing `""`) also defaults to `driving`. `motor_scooter` and `okada` are aliases.
+- **`mode: "truck"`** uses heavy-goods costing — tracks and living streets are penalised far harder than for `driving`, and OSM `hgv` / `maxheight` / `maxweight` / `maxwidth` restrictions are honoured. Add a `truck` object to route around restrictions the vehicle actually breaches:
+
+```json
+{
+  "from": { "point": { "lat": 5.6222, "lng": -0.1729 } },
+  "to":   { "point": { "lat": 6.6885, "lng": -1.6244 } },
+  "mode": "truck",
+  "truck": { "height_m": 4.2, "weight_t": 18, "axle_count": 3 }
+}
+```
+
+  All `truck` fields are optional — omit what you don't know rather than guessing, since an overstated height silently rules out roads the vehicle could legally use. Units are metres and metric tonnes. Sending `truck` with any other mode returns `400 VALIDATION_ERROR` rather than being ignored.
+
+  **Set expectations on how much this changes a route today.** Ghana's OSM data carries very few truck restrictions — measured 2026-08-12: **77** `maxheight` ways, **0** `maxweight`, **6** `hgv` in the entire country. So the dimensions rarely bite yet, and on trunk corridors `truck` returns the same route as `driving` (Accra→Kumasi is identical at 249 km). Where it does differ is roads of mixed quality, because truck costing penalises tracks and living streets far harder — a rural Bolgatanga route returns 31.1 km for `truck` against 32.2 km for `driving`, a genuinely different path. Treat dimension-aware routing as correct-and-ready rather than as something that will visibly reroute around low bridges; that improves as OSM coverage does.
 - `narration`: `landmark | street | both`. `from`/`to` accept `hex` (`{hex: "…"}`), `point`, or both.
 - **`avoid_locations` is supported** — an array of `{ lat, lng }` points the route must avoid (snapped to the nearest road). `avoid_polygons` takes closed exterior rings of `[lng, lat]` pairs. `avoid_flood_zones` merges the curated flood zones.
 - `lite: true` returns only polyline + distance/duration/ETA — no steps, landmarks, or alternatives.
@@ -414,6 +436,36 @@ the zones and returns the route with `flood_avoidance_failed: true` plus a
 warning. Badge that route as unsafe; do not present it as flood-avoiding. A
 caller's own `avoid_polygons` / `avoid_locations` are never dropped by this
 retry, so those can still legitimately produce `404 NO_ROUTE`.
+
+**Except under an official flood warning, where the API refuses.** If the
+degraded route above would be returned *and* a GMet flood warning is in effect
+over the route, you get `409` instead:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "FLOOD_ALERT_ACTIVE",
+    "message": "an official GMet flood warning covers this route and it cannot be routed around the flood-prone areas: Heavy rain over Accra"
+  }
+}
+```
+
+Show the message — it carries the GMet headline. Retrying without
+`avoid_flood_zones` will return a route, so do that only on an explicit "go
+anyway" from the user, never automatically. Note this is narrow by design: a
+route that *successfully* avoids the zones is still served during an alert
+(that's the route someone needs in order to leave), and requests that never set
+`avoid_flood_zones` are unaffected.
+
+Summary of the four outcomes for `avoid_flood_zones: true`:
+
+| Response | Meaning | UI |
+|---|---|---|
+| `200`, no `flood_avoidance_failed` | zones avoided | normal |
+| `200`, `flood_avoidance_failed: true` | zones ignored, may flood | badge unsafe |
+| `409 FLOOD_ALERT_ACTIVE` | live flood warning, no safe route | refuse + show headline |
+| `404 NO_ROUTE` | your own avoid constraints, or unreachable endpoints | normal no-route UI |
 
 ### 2b. Traffic feed (authenticated, fail-open)
 
@@ -479,8 +531,32 @@ X-API-Key: <token>
 - **`modes`** is a case-insensitive substring test, not an enum: empty or containing
   `"transit"` → transit routing (default); anything else (e.g. `"WALK"`) → walk-only plan.
 - `max_walk_m` is **accepted but currently ignored** — do not rely on it to bound walking.
-- If every itinerary is walk-only, show "a bus route doesn't beat walking here".
-- Optional `date` (`YYYY-MM-DD`) + `time` (`HH:MM`); default = now.
+- Optional `date` (`YYYY-MM-DD`) + `time` (`HH:MM`); default = now. Malformed values are
+  rejected with `400 INVALID_PARAM` rather than silently falling back to now.
+
+**No service.** Each itinerary carries `walk_only`; the response carries `no_transit`
+(true when nothing in `itineraries` uses a vehicle, including an empty list) and a
+`note`. Don't infer "no service" from leg modes yourself — OTP answers a query it can't
+serve with a plain walk (Achimota → 37 Hospital at 05:00 comes back as a 91-minute walk,
+not a bus), so check `no_transit` rather than presenting that walk as a trotro journey.
+
+When `no_transit` is set and the miss looks like a clock problem rather than a routing
+gap, the note is backed by real GTFS data instead of being purely generic:
+
+```json
+{ "no_transit": true,
+  "note": "too late — the last trotro near your start point today was the 102B from Terminal Madina Station at 19:40, already gone",
+  "last_trip": { "short_name": "102B", "long_name": "Madina Station to Achimota Station",
+                 "stop_name": "Terminal Madina Station", "time": "19:40" } }
+```
+
+- `first_trip` is set instead when the request fell *before* the day's first boardable
+  departure near the start point ("too early — the first trotro ... leaves at HH:MM").
+- Neither is set when the request time falls within the service window but still found
+  no route — that's a real network gap, not a time-of-day problem, and the generic note
+  ("service is sparse outside daytime hours…") stands on its own.
+- Both are derived from the *start point*, not the destination, and from this feed's one
+  representative trip per line per day — not a live "next bus" countdown.
 
 ### 2d. Landmarks along a route (optional)
 
@@ -523,7 +599,7 @@ POST /v2/navigation/arrival
 - **Public** — no `X-API-Key`; throttled to 30 concurrent; body cap 1 MB.
 - **All fields optional (fail-open):** missing/zero coordinates are silently dropped with
   204, never a 400 (malformed JSON is the only 400). Send them anyway.
-- `profile`: `driving | foot | bicycle` — anything else normalizes to `driving`.
+- `profile`: `driving | foot | bicycle | motor_scooter | truck` — send the mode used to plan the trip (`okada` normalizes to `motor_scooter`); anything else normalizes to `driving`. New arrival and learned-traffic samples are grouped by profile, so newly reported truck trips do not enter driving factors. A profile with too few samples falls back to the static traffic factors.
 - `arrived`: boolean, **defaults to `true`** when omitted (`false` = give-up).
 - `achieved_duration_s` is preferred over `started_at`/`arrived_at` when present.
 - Possible non-204: `503 DB_UNAVAILABLE`, `503 SERVER_BUSY` (throttle).
@@ -757,3 +833,56 @@ GET /v2/precipitation-forecast
 
 **Test key used for capture:** `734ee12998fdca3e2a8fd3e1feed18f4451670a4cc8ee139ab2913a2d8b07dc0`
 (tier `team`, expires 2027-05-06).
+
+## What leaves from here? — `GET /v2/transit/departures`
+
+The reverse of trip planning. Given a point, returns the trotro/bus lines a
+rider can **board** there and where each one ends up — the question people
+actually have while standing at a station. Public, no key.
+
+```
+GET /v2/transit/departures?lat=5.61652&lng=-0.22947&radius_m=400
+```
+
+```json
+{
+  "routes": [
+    { "short_name": "263A", "long_name": "Darkuman to Haasto", "mode": "BUS",
+      "destination": "Terminal Haasto", "dest_distance_m": 6300,
+      "stop_name": "Achimota Old Station", "stop_distance_m": 0 }
+  ],
+  "count": 3,
+  "stops": ["Achimota Old Station"]
+}
+```
+
+Sorted nearest boarding point first. `radius_m` defaults to 400, max 2000.
+
+**Lines that terminate at the stop are deliberately excluded.** At Achimota, 8
+of the 12 routes serving the station *arrive* there — offering them would tell a
+rider to board a bus that has already finished its run. Only lines that continue
+somewhere meaningfully far are returned, so a short list is correct, not broken.
+
+When `count` is 0 the response sets `no_routes` and a `note` distinguishing the
+two cases: no stop within `radius_m`, versus a stop that is the end of every
+line it serves. Show the note — the advice differs ("widen the search" vs "walk
+to another station").
+
+Same Greater-Accra-only, daytime-service caveats as `/v2/route/transit`.
+
+## Attribution — required in the app
+
+Landmarks carry a `source` field naming the dataset each came from, and most of
+those datasets require credit wherever the data is shown. Put this somewhere
+reachable — an "About"/"Legal" screen is fine, it does not have to sit on the map:
+
+> Place data © OpenStreetMap contributors (ODbL), © 2025 Foursquare Labs, Inc.
+> (Apache 2.0), © Overture Maps Foundation (CDLA-Permissive 2.0), © GeoNames
+> (CC BY 4.0).
+
+Wikidata-sourced rows are CC0 and need no credit. The map basemap is
+OpenStreetMap-derived and already renders its own "© OpenStreetMap" credit —
+that covers the tiles, not the place data above.
+
+Full licences, Foursquare's verbatim NOTICE and the modifications we make are in
+`NOTICE.md` in the API repository.

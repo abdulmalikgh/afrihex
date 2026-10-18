@@ -6,6 +6,7 @@ import { MapPin } from 'lucide-react-native';
 import { colors } from '../../../constants/colors';
 import { mapDarkStyle, mapWater } from '../../../constants/mapStyle';
 import { mapColors, mapElevation, mapShape } from '../../../constants/material';
+import { canUseNativeMaps } from '../../../constants/nativeMaps';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
 import { AppText } from '../../../components';
@@ -66,7 +67,7 @@ export function InteractiveMap({
     mapRef.current?.animateToRegion(getMapRegion(null, focus), 650);
   }, [focus, result]);
 
-  if (Platform.OS === 'web') {
+  if (Platform.OS === 'web' || !canUseNativeMaps) {
     return (
       <View style={style}>
         <MapFallback result={result} />

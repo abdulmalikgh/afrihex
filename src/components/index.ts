@@ -4,6 +4,7 @@ export { AppText } from './AppText';
 export { BackButton } from './BackButton';
 export { BottomSheet, type SheetSnapIndex } from './BottomSheet';
 export { CodeChip } from './CodeChip';
+export { DatePicker } from './DatePicker';
 export { EmptyState } from './EmptyState';
 export { ErrorBanner } from './ErrorBanner';
 export { GoogleIcon } from './GoogleIcon';

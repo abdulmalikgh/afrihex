@@ -21,7 +21,11 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow AfriHex to use your location to find your current GPS code."
+          "locationWhenInUsePermission": "Allow AfriHex to use your location to find your current GPS code.",
+          "locationAlwaysAndWhenInUsePermission": "Allow AfriHex to use your location in the background so it can keep tracking your trip and report where you arrived.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "androidForegroundServiceIcon": "./assets/android-notification-icon.png"
         }
       ],
       [
@@ -73,6 +77,9 @@
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",

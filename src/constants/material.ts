@@ -58,6 +58,83 @@ export const mapColors = {
 export type MapColor = keyof typeof mapColors;
 
 /**
+ * Route line colours, for the map rather than for chrome.
+ *
+ * Contrast is measured against the tile colours in `mapStyle.ts`, because that is
+ * what the line actually sits on — not against `surface`. The binding constraint
+ * is `road.highway` at `#3c4a40`, the brightest thing a route can cross.
+ *
+ * ## Why not Google's navigation blue
+ *
+ * `#4285f4` — the blue Google Maps draws its route in — measures **2.62:1**
+ * against our highway tiles. That is below the 3:1 floor for non-text content, so
+ * the line loses its edge exactly where a highway crossing is hardest to read.
+ * Their darker `#1a73e8` is worse still at 2.08:1. Lifting to `#4d9dff` clears
+ * every tile:
+ *
+ * | Against        | `#4d9dff` | `#4285f4` |
+ * | -------------- | --------- | ---------- |
+ * | land `#16201a` | 6.04:1 ✓  | 4.69:1 ✓  |
+ * | road `#26312a` | 4.88:1 ✓  | 3.79:1 ✓  |
+ * | arterial `#2d3931` | 4.35:1 ✓ | 3.38:1 ✓ |
+ * | highway `#3c4a40` | **3.38:1 ✓** | **2.62:1 ✗** |
+ *
+ * ## The colour roles do not overlap
+ *
+ * Green is reserved for the manoeuvre — the point the driver has to act on —
+ * and is never used for the line it acts on. Blue means "the road ahead". This is
+ * why `trafficTint` is dropped while navigating: the traffic ramp is green→amber→
+ * red, so keeping it on a line that is itself being coloured for meaning would
+ * make the two indistinguishable.
+ */
+export const mapRoute = {
+  /** Planning, untinted: the brand line. 5.40:1 on a local road. */
+  planned: '#47b878',
+  /** Planning, tinted by `traffic_color` from the API. */
+  trafficTint: '#47b878',
+  /** An alternative the user has not chosen. Present, never competing. */
+  inactive: '#6b776e',
+  /** The route still ahead, during a trip. 3.38:1 on a highway. */
+  active: '#4d9dff',
+  /** Already driven this trip. Recedes so the blue ahead reads as the subject. */
+  travelled: '#6b776e',
+  /**
+   * The segment the user tapped in the steps list.
+   *
+   * Saturated green at a heavier weight with a dark casing behind it, so the
+   * selection is carried by width and contrast rather than hue alone — the
+   * untinted planning line is the same green, and colour on its own would not
+   * distinguish them.
+   */
+  selected: '#3ddc84',
+  /** Casing drawn under `selected` to lift it off a light road fill. */
+  selectedCasing: '#0a1710',
+  /** Off-route: the line is no longer trustworthy, and says so. */
+  offRoute: '#e07160',
+  /** The manoeuvre pin, and the selected step's marker. */
+  maneuver: '#3ddc84',
+} as const;
+
+/**
+ * Route stroke widths.
+ *
+ * The casing matters more than the width does: on a dark map a wider green line
+ * only reads as brighter, whereas a wider line *plus* a dark casing reads as
+ * nearer. Widths are whole numbers because `react-native-maps` rounds to points
+ * on iOS and fractions produce a visibly thinner line there than on Android.
+ */
+export const mapRouteStroke = {
+  inactive: 4,
+  planned: 5,
+  selected: 9,
+  selectedCasing: 13,
+  /** Ahead plus behind, drawn as separate lines. */
+  active: 7,
+  activeCasing: 11,
+  travelled: 4,
+} as const;
+
+/**
  * MD3 elevation levels 0-5 (0, 1, 3, 6, 8, 12dp) expressed for both platforms.
  *
  * Opacities run higher than the light-mode values: a black shadow cast onto a

@@ -139,11 +139,16 @@ Use `expo-secure-store` for the API token returned from:
 - `POST /v2/auth/register`
 - `POST /v2/auth/google/exchange`
 
-Google auth starts in a system auth browser session against the backend-owned
-`GET /v2/auth/google` endpoint. The mobile app should receive a one-time `code` on the
-`afrihex://auth/callback` deep link and exchange it with
-`POST /v2/auth/google/exchange`. The Google client secret and OAuth callback ownership stay
-on backend infrastructure, never inside the mobile app.
+Google auth uses the **mobile-native flow**: the Google Sign-In SDK
+(`@react-native-google-signin/google-signin`) runs entirely in the app and returns a
+Google **id_token**; the app exchanges it at `POST /v2/auth/google/mobile` with
+`{ "id_token" }` (see `MOBILE_API_EXAMPLES.md` §3b). There is no browser redirect and
+no deep-link callback, so the user can never be bounced to the web app. Google client
+IDs come from `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (build-time env). The older
+`GET /v2/auth/google` + `POST /v2/auth/google/exchange` code flow is the web app's
+path and must not be used from mobile — its server-side callback redirects to the web
+app. The Google client secret and OAuth callback ownership stay on backend
+infrastructure, never inside the mobile app.
 
 Use React Query for:
 
@@ -284,7 +289,7 @@ Features:
 
 - Origin and destination inputs.
 - Use current location as origin.
-- Route modes: driving, foot, bicycle, motor scooter.
+- Route modes: driving, foot, bicycle, motor scooter, truck.
 - Narration options: landmark, street, both.
 - Avoid flood zones toggle.
 - Anonymous users use `/v2/route/public`.

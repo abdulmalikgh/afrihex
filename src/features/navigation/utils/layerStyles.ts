@@ -50,8 +50,7 @@ export function getPrecipitationCircle(probability: number) {
   };
 }
 
-/** An alternative the user has not selected: present, but never competing with the active line. */
-export const INACTIVE_ROUTE_STROKE = colors.faint;
+
 
 /**
  * Hazard-report pins. Corroborated reports (`report_count >= 2`) are the only

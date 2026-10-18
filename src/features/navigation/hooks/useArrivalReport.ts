@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { reportArrival } from '../../../api/navigation';
 import type { RouteMode, RoutePoint } from '../../../api/route';
 import type { PlannedRoute } from '../types/directions';
+import { distanceMeters } from '../utils/geo';
 
 /**
  * Close enough to call it arrived. A GPS fix in Accra is routinely 10–20 m out
@@ -12,37 +13,20 @@ import type { PlannedRoute } from '../types/directions';
  */
 const ARRIVAL_RADIUS_M = 60;
 
-const EARTH_RADIUS_M = 6_371_000;
-
-/** `profile` accepts `driving | foot | bicycle`; anything else normalizes to driving. */
-function toProfile(mode: RouteMode): string {
-  switch (mode) {
-    case 'foot':
-    case 'bicycle':
-      return mode;
-    default:
-      return 'driving';
-  }
-}
-
-function distanceMeters(a: RoutePoint, b: RoutePoint) {
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-  const dLat = toRadians(b.lat - a.lat);
-  const dLng = toRadians(b.lng - a.lng);
-  const lat1 = toRadians(a.lat);
-  const lat2 = toRadians(b.lat);
-
-  const h =
-    Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
-
-  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
 type UseArrivalReportInput = {
   origin: RoutePoint | null;
   destination: RoutePoint | null;
   route: PlannedRoute | null;
   mode: RouteMode;
+  /**
+   * Stands the proximity watch down.
+   *
+   * Set while `useTurnByTurn` owns the trip: both hooks watching position would
+   * mean two reporters for one journey, and the duplicate sample is what the
+   * traffic model would learn from. The manual button stays available either way,
+   * so this only withdraws the automatic path.
+   */
+  enabled?: boolean;
 };
 
 /**
@@ -55,7 +39,7 @@ type UseArrivalReportInput = {
  * explicit control for the times someone parks a street away and closes the app.
  * Both report at most once per planned route.
  */
-export function useArrivalReport({ origin, destination, route, mode }: UseArrivalReportInput) {
+export function useArrivalReport({ origin, destination, route, mode, enabled = true }: UseArrivalReportInput) {
   const [hasReported, setHasReported] = useState(false);
   const startedAtRef = useRef<number | null>(null);
   const lastPositionRef = useRef<RoutePoint | null>(null);
@@ -86,7 +70,7 @@ export function useArrivalReport({ origin, destination, route, mode }: UseArriva
         destLng: destination.lng,
         ...(finalPosition ? { finalLat: finalPosition.lat, finalLng: finalPosition.lng } : {}),
         ...(origin ? { originLat: origin.lat, originLng: origin.lng } : {}),
-        profile: toProfile(mode),
+        profile: mode,
         routeDistanceM: route.distanceM,
         routeDurationS: route.durationS,
         ...(startedAt ? { achievedDurationS: Math.round((Date.now() - startedAt) / 1000) } : {}),
@@ -97,7 +81,7 @@ export function useArrivalReport({ origin, destination, route, mode }: UseArriva
   );
 
   useEffect(() => {
-    if (!destination || !route) {
+    if (!destination || !route || !enabled) {
       return;
     }
 
@@ -138,7 +122,7 @@ export function useArrivalReport({ origin, destination, route, mode }: UseArriva
       cancelled = true;
       subscription?.remove();
     };
-  }, [destination, route, send]);
+  }, [destination, enabled, route, send]);
 
   /**
    * The manual path, for the times someone parks a street away and closes the app.

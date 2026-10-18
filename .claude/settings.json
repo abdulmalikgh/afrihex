@@ -21,7 +21,26 @@
       "Bash(git stash *)",
       "Bash(env -u GOOGLE_MAPS_ANDROID_API_KEY npx expo config --type prebuild --json)",
       "Bash(echo \"exit=$?\")",
-      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{try{const j=JSON.parse\\(s\\);console.log\\('status:',j.status\\);if\\(j.error_message\\)console.log\\('error_message:',j.error_message\\);}catch\\(e\\){console.log\\(s.slice\\(0,300\\)\\)}}\\)\")"
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{try{const j=JSON.parse\\(s\\);console.log\\('status:',j.status\\);if\\(j.error_message\\)console.log\\('error_message:',j.error_message\\);}catch\\(e\\){console.log\\(s.slice\\(0,300\\)\\)}}\\)\")",
+      "Bash(curl -sL \"https://expo.dev/artifacts/eas/c0fYwHWL681ROzKJvioz8KQHCQA9idWYAv5NwvFMc4o.apk\" -o old.apk --max-time 400)",
+      "Bash(unzip -o -q old.apk AndroidManifest.xml -d oldmanifest)",
+      "Bash(npx expo-doctor *)",
+      "Bash(node -p \"const d=require\\('./package.json'\\).dependencies; ['expo-constants','expo-linking'].map\\(k=>k+': '+\\(d[k]||'NOT DECLARED'\\)\\).join\\('\\\\n'\\)\")",
+      "Bash(brew install *)",
+      "Bash(adb version *)",
+      "Bash(adb wait-for-device *)",
+      "Bash(adb shell *)",
+      "Bash(npx @sentry/wizard@latest -i reactNative --saas --org afrihex --project react-native)",
+      "Bash(mkdir -p ~/Library/Android/sdk/cmdline-tools)",
+      "Bash(curl -sL \"https://dl.google.com/android/repository/commandlinetools-mac-11076708_latest.zip\" -o cmdtools.zip --max-time 300 -w \"HTTP %{http_code}  size:%{size_download}\\\\n\")",
+      "Bash(unzip -q -o cmdtools.zip -d cmdtools-extract)",
+      "Bash(rm -rf ~/Library/Android/sdk/cmdline-tools/latest)",
+      "Bash(mv /private/tmp/claude-501/-Users-abdul-malik-musah-Documents-projects-afrihex/5738690e-d9b2-419f-a0da-5781d490d586/scratchpad/cmdtools-extract/cmdline-tools ~/Library/Android/sdk/cmdline-tools/latest)",
+      "Read(//Users/abdul_malik_musah/Library/Android/sdk/cmdline-tools/latest/**)",
+      "Bash(unzip -l old.apk)",
+      "Bash(awk '{print $4}')",
+      "Bash(unzip -o -q old.apk 'lib/arm64-v8a/*' -d libs)",
+      "Bash(unzip -o -q old.apk 'assets/index.android.bundle' -d bundleold)"
     ]
   },
   "enabledPlugins": {

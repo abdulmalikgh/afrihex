@@ -1,6 +1,4 @@
-import * as AuthSession from 'expo-auth-session';
 import { router } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import {
   createContext,
   type ReactNode,
@@ -8,18 +6,19 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { API_BASE_URL, ApiRequestError } from '../../../api/client';
+import { ApiRequestError } from '../../../api/client';
 import {
-  exchangeGoogleCode,
   getCurrentUser,
   getUsageSummary,
   loginWithEmail,
   registerWithEmail,
   rotateApiKey,
+  exchangeGoogleIdToken,
 } from '../../../api/auth';
 import {
   clearStoredAuthToken,
@@ -29,14 +28,13 @@ import {
   setStoredAuthToken,
   setStoredAuthUser,
 } from '../../../storage/authToken';
+import { googleWebClientId, googleIosClientId } from '../../../constants/googleAuth';
 import type {
   AccountInfo,
   AfriHexUser,
   AuthSession as AfriHexAuthSession,
   UsageSummary,
 } from '../types/auth';
-
-WebBrowser.maybeCompleteAuthSession();
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
@@ -61,7 +59,6 @@ type AuthSessionContextValue = {
   login: (input: EmailLoginInput) => Promise<void>;
   register: (input: EmailRegisterInput) => Promise<void>;
   startGoogleSignIn: () => Promise<void>;
-  exchangeGoogleCallbackCode: (code: string) => Promise<void>;
   clearError: () => void;
   logout: () => Promise<void>;
   /** Issues a new API key and revokes the old one. Signs out other devices. */
@@ -135,6 +132,54 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     setErrorMessage(null);
   }, [queryClient]);
 
+  // `GoogleSignin.configure` is a global, must-run-once setup step. Calling it
+  // on every provider mount would reset in-flight work on re-renders, so it is
+  // guarded by a ref. On iOS the native SDK also needs the app's iOS OAuth
+  // client id (`iosClientId`); without it (and without a Firebase
+  // GoogleService-Info.plist) sign-in fails before a token is ever produced.
+  const googleSignInConfigured = useRef(false);
+  const googleSigninModule = useRef<typeof import('@react-native-google-signin/google-signin') | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadGoogleSignin() {
+      try {
+        const module = await import('@react-native-google-signin/google-signin');
+        if (mounted && module) {
+          googleSigninModule.current = module;
+          if (!googleSignInConfigured.current) {
+            googleSignInConfigured.current = true;
+            try {
+              module.GoogleSignin.configure(
+                googleWebClientId || googleIosClientId
+                  ? {
+                      webClientId: googleWebClientId ?? undefined,
+                      iosClientId: googleIosClientId ?? undefined,
+                    }
+                  : undefined,
+              );
+            } catch (configError) {
+              console.warn('Failed to configure Google Sign-In:', configError);
+            }
+          }
+        }
+      } catch (error) {
+        if (mounted) {
+          // Silently ignore - module not available in this build/environment
+          console.warn('Google Sign-In module not available:', error);
+        }
+      }
+    }
+    try {
+      void loadGoogleSignin();
+    } catch (error) {
+      console.warn('Failed to load Google Sign-In:', error);
+    }
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const loginMutation = useMutation({
     mutationFn: loginWithEmail,
     onSuccess: persistSession,
@@ -151,8 +196,8 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const googleExchangeMutation = useMutation({
-    mutationFn: exchangeGoogleCode,
+  const googleIdTokenMutation = useMutation({
+    mutationFn: exchangeGoogleIdToken,
     onSuccess: persistSession,
     onError: (error) => {
       setErrorMessage(getErrorMessage(error));
@@ -215,37 +260,58 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     [registerMutation],
   );
 
-  const exchangeGoogleCallbackCode = useCallback(
-    async (code: string) => {
-      await googleExchangeMutation.mutateAsync(code);
-    },
-    [googleExchangeMutation],
-  );
-
   const startGoogleSignIn = useCallback(async () => {
     setErrorMessage(null);
 
-    const redirectUri = AuthSession.makeRedirectUri({
-      scheme: 'afrihex',
-      path: 'auth/callback',
-    });
-    const result = await WebBrowser.openAuthSessionAsync(`${API_BASE_URL}/v2/auth/google`, redirectUri);
-
-    if (result.type !== 'success') {
+    if (!googleSigninModule.current) {
+      setErrorMessage('Google sign-in is not available in this build.');
       return;
     }
 
-    const callbackUrl = new URL(result.url);
-    const code = callbackUrl.searchParams.get('code');
+    const module = googleSigninModule.current;
+    const { GoogleSignin, isCancelledResponse, statusCodes } = module;
+    type SignInResponse = import('@react-native-google-signin/google-signin').SignInResponse;
 
-    if (!code) {
-      setErrorMessage('Google sign-in did not return an authorization code.');
+    // Without a web client id the Android SDK returns no id_token and Google
+    // rejects the exchange, so fail fast with something the user can act on.
+    if (!googleWebClientId) {
+      setErrorMessage('Google sign-in is not configured. Please try again later.');
       return;
     }
 
-    await googleExchangeMutation.mutateAsync(code);
+    try {
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+    } catch {
+      setErrorMessage('Google Play services are required to sign in with Google.');
+      return;
+    }
+
+    let response: SignInResponse;
+    try {
+      response = await GoogleSignin.signIn();
+    } catch (error) {
+      setErrorMessage(googleSignInErrorMessage(error, statusCodes));
+      return;
+    }
+
+    // Closing the account picker is a deliberate stop, not an error — exactly
+    // like dismissing the old sign-in browser, nothing is surfaced.
+    if (isCancelledResponse(response)) {
+      return;
+    }
+
+    // `success` is the only branch left once cancellation is ruled out.
+    const idToken = response.data.idToken;
+    if (!idToken) {
+      setErrorMessage('Google sign-in did not return an ID token.');
+      return;
+    }
+
+    await googleIdTokenMutation.mutateAsync(idToken);
     router.replace('/account');
-  }, [googleExchangeMutation]);
+  }, [googleIdTokenMutation]);
 
   const status: AuthStatus = !loaded ? 'loading' : token ? 'authenticated' : 'anonymous';
 
@@ -259,11 +325,10 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       accountErrorMessage: userQuery.error ? getErrorMessage(userQuery.error) : null,
       isUserLoading: Boolean(token) && userQuery.isPending,
       isSubmitting:
-        loginMutation.isPending || registerMutation.isPending || googleExchangeMutation.isPending,
+        loginMutation.isPending || registerMutation.isPending || googleIdTokenMutation.isPending,
       login,
       register,
       startGoogleSignIn,
-      exchangeGoogleCallbackCode,
       clearError,
       logout,
       rotateKey,
@@ -274,8 +339,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       errorMessage,
       rotateKey,
       rotateKeyMutation.isPending,
-      exchangeGoogleCallbackCode,
-      googleExchangeMutation.isPending,
+      googleIdTokenMutation.isPending,
       login,
       loginMutation.isPending,
       logout,
@@ -306,6 +370,52 @@ export function useAuthSession() {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Try again.';
+}
+
+/**
+ * Android's `DEVELOPER_ERROR`. The native module rejects with
+ * `String.valueOf(CommonStatusCodes.DEVELOPER_ERROR)`, so the code arrives as a
+ * string — comparing against the number 10 would never match.
+ */
+const googleDeveloperErrorCode = '10';
+
+/**
+ * Maps the native Google Sign-In error codes to user-facing copy. Everything
+ * not explicitly recognised falls back to a safe generic message rather than
+ * leaking a raw platform code.
+ *
+ * The symbolic codes are read off the module's own `statusCodes` rather than
+ * hardcoded, because most of them are native constants whose literal values are
+ * not part of the public contract.
+ *
+ * `DEVELOPER_ERROR` is called out on its own because it is the one failure no
+ * user can act on and no retry can clear: it means this build's package name
+ * plus signing-certificate fingerprint has no matching Android OAuth client in
+ * the Google Cloud project, so every attempt fails identically. Folding it into
+ * "try again" hid the only thing worth knowing.
+ */
+function googleSignInErrorMessage(
+  error: unknown,
+  statusCodes: typeof import('@react-native-google-signin/google-signin').statusCodes,
+): string {
+  if (!(typeof error === 'object' && error !== null && 'code' in error)) {
+    return 'Google sign-in failed. Please try again.';
+  }
+
+  switch ((error as { code: unknown }).code) {
+    case googleDeveloperErrorCode:
+      return 'This build is not registered for Google sign-in. Its Android OAuth client is missing or its signing certificate does not match.';
+    case statusCodes.PLAY_SERVICES_NOT_AVAILABLE:
+      return 'Google Play services are required to sign in with Google.';
+    case statusCodes.IN_PROGRESS:
+      return 'A Google sign-in is already in progress.';
+    case statusCodes.NULL_PRESENTER:
+      return 'Google sign-in is not set up for this build.';
+    case statusCodes.SIGN_IN_REQUIRED:
+      return 'Please sign in to continue.';
+    default:
+      return 'Google sign-in failed. Please try again.';
+  }
 }
 
 function mergeAccountInfo(baseUser: AfriHexUser | undefined, accountInfo: AccountInfo): AfriHexUser {

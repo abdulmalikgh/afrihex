@@ -12,7 +12,7 @@ import {
   validatePromotionWindow,
 } from '../../../api/business';
 import { geocodeLandmarks, type LandmarkMatch } from '../../../api/search';
-import { AppButton, AppInput, AppText, BackButton, ErrorBanner, Screen } from '../../../components';
+import { AppButton, AppInput, AppText, BackButton, DatePicker, ErrorBanner, Screen } from '../../../components';
 import { colors } from '../../../constants/colors';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
@@ -328,25 +328,17 @@ export function ClaimBusinessScreen() {
       </View>
 
       <View style={styles.field}>
-        <AppText variant="caption" tone="muted">
-          Runs until
-        </AppText>
-        <AppInput
+        <DatePicker
+          label="Runs until"
           value={expiresAt}
-          onChangeText={setExpiresAt}
-          placeholder="2026-09-08T00:00:00Z"
-          autoCapitalize="none"
-          autoCorrect={false}
+          onChange={setExpiresAt}
           accessibilityLabel="Promotion end date"
+          minimumDate={new Date(Date.now() + 86_400_000)} // Tomorrow minimum
+          error={windowError || undefined}
         />
         <AppText variant="caption" tone="faint">
           Starts as soon as it is approved. Maximum run is 180 days.
         </AppText>
-        {windowError ? (
-          <AppText variant="caption" tone="danger">
-            {windowError}
-          </AppText>
-        ) : null}
       </View>
 
       <AppButton onPress={handleSubmit} disabled={!canSubmit} loading={claimMutation.isPending}>

@@ -6,7 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 
 import { ApiRequestError } from '../../../api/client';
 import { PROMOTION_TEXT_MAX_LENGTH, updatePromotion, validatePromotionWindow } from '../../../api/business';
-import { AppButton, AppInput, AppText, BackButton, EmptyState, ErrorBanner, Screen } from '../../../components';
+import { AppButton, AppInput, AppText, BackButton, DatePicker, EmptyState, ErrorBanner, Screen } from '../../../components';
 import { colors } from '../../../constants/colors';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
@@ -140,24 +140,17 @@ export function ManagePromotionsScreen() {
         </View>
 
         <View style={styles.field}>
-          <AppText variant="caption" tone="muted">
-            Runs until
-          </AppText>
-          <AppInput
+          <DatePicker
+            label="Runs until"
             value={expiresAt}
-            onChangeText={(value) => {
+            onChange={(value) => {
               setExpiresAt(value);
               setWindowError(null);
             }}
-            autoCapitalize="none"
-            autoCorrect={false}
             accessibilityLabel="Promotion end date"
+            minimumDate={new Date(Date.now() + 86_400_000)}
+            error={windowError || undefined}
           />
-          {windowError ? (
-            <AppText variant="caption" tone="danger">
-              {windowError}
-            </AppText>
-          ) : null}
         </View>
 
         <AppButton onPress={handleSave} disabled={trimmed.length === 0} loading={saveMutation.isPending}>

@@ -7,7 +7,10 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "ios": { "simulator": true }
+      "ios": { "simulator": true },
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "573049393563-v0luia35vn3ol8shguqkpau0bngtifph.apps.googleusercontent.com"
+      }
     },
     "preview": {
       "distribution": "internal",
@@ -19,7 +22,11 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_SENTRY_DSN": "https://3c09e932289d9ec67310f752a8580858@o4512083977961472.ingest.us.sentry.io/4512083987464192"
+        "EXPO_PUBLIC_SENTRY_DSN": "https://3c09e932289d9ec67310f752a8580858@o4512083977961472.ingest.us.sentry.io/4512083987464192",
+        "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyD__x4dj4QD3bdFC303KSvDY1DxdsqfgZU",
+        "EXPO_PUBLIC_MAPS_CONFIGURED": "true",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "573049393563-v0luia35vn3ol8shguqkpau0bngtifph.apps.googleusercontent.com"
       }
     },
     "preview-simulator": {
@@ -32,7 +39,11 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_SENTRY_DSN": "https://3c09e932289d9ec67310f752a8580858@o4512083977961472.ingest.us.sentry.io/4512083987464192"
+        "EXPO_PUBLIC_SENTRY_DSN": "https://3c09e932289d9ec67310f752a8580858@o4512083977961472.ingest.us.sentry.io/4512083987464192",
+        "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyD__x4dj4QD3bdFC303KSvDY1DxdsqfgZU",
+        "EXPO_PUBLIC_MAPS_CONFIGURED": "true",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "573049393563-v0luia35vn3ol8shguqkpau0bngtifph.apps.googleusercontent.com"
       }
     }
   },

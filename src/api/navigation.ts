@@ -291,8 +291,13 @@ export type ArrivalTelemetry = {
   finalLng?: number;
   originLat?: number;
   originLng?: number;
-  /** `driving | foot | bicycle`; anything else normalizes to `driving` server-side. */
-  profile: string;
+  /**
+   * The mode the trip was planned with. Typed as `RouteMode` rather than `string`
+   * so a new mode cannot be silently reported as `driving`: samples are grouped by
+   * profile, so mislabelling a truck or okada trip would fold it into the driving
+   * traffic factors and skew ETA for everyone else.
+   */
+  profile: RouteMode;
   routeDistanceM?: number;
   routeDurationS?: number;
   /** Preferred over start/end timestamps when we have it. */

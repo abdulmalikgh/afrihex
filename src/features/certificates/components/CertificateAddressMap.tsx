@@ -1,8 +1,10 @@
 import { StyleSheet, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
+import { AppText } from '../../../components';
 import { colors } from '../../../constants/colors';
 import { mapDarkStyle } from '../../../constants/mapStyle';
+import { canUseNativeMaps } from '../../../constants/nativeMaps';
 import { radius } from '../../../constants/radius';
 
 type CertificateAddressMapProps = {
@@ -16,6 +18,16 @@ type CertificateAddressMapProps = {
  * map inside a scrolling document fights the scroll.
  */
 export function CertificateAddressMap({ lat, lng }: CertificateAddressMapProps) {
+  if (!canUseNativeMaps) {
+    return (
+      <View style={[styles.container, styles.fallback]} accessible accessibilityLabel="Map preview unavailable">
+        <AppText variant="caption" tone="muted" align="center">
+          Map preview unavailable in this build
+        </AppText>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container} pointerEvents="none">
       <MapView
@@ -50,5 +62,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.cardAlt,
     overflow: 'hidden',
+  },
+  fallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
 });

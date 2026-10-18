@@ -68,12 +68,13 @@ and an address card → drill into Nearby and "Business around me".
 
 ## 2. Directions (routing, traffic, transit, navigation)
 
-**What it is (web):** plan a route (drive/okada/walk/bike), see ETA + traffic, optionally
+**What it is (web):** plan a route (drive/okada/walk/bike/truck), see ETA + traffic, optionally
 see trotro/bus options, and turn-by-turn navigate.
 
 **Screen:**
 1. From/To inputs (searchable via FindGPS autocomplete, or tap-to-pick on map).
-2. Profile selector: Drive · Okada · Walk · Bike, plus a **Transit (trotro / bus)** button.
+2. Profile selector: Drive · Okada · Walk · Bike · Truck, plus a **Transit (trotro / bus)**
+   button.
 3. Result card: distance, **ETA** (`eta_s`), traffic note, live **traffic panel**, unpaved/
    flood warnings, "Start navigation".
 4. Route line on the map, **tinted per segment by traffic**.
@@ -92,7 +93,7 @@ see trotro/bus options, and turn-by-turn navigate.
 | 6 | POIs along route (optional) | `POST /v2/route/along` | `{coordinates, kinds, buffer_m}` |
 
 **Notes:**
-- `mode`: `driving | foot | bicycle | motor_scooter` (okada). `narration`: `landmark` gives
+- `mode`: `driving | foot | bicycle | motor_scooter | truck` (okada). `narration`: `landmark` gives
   landmark-based instructions (great for Accra).
 - Each `step` carries `traffic_factor` / `traffic_severity` / `traffic_color` — use them to
   tint the route polyline per segment (green→red). The traffic panel highlights the road

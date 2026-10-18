@@ -24,6 +24,7 @@ export const MODE_OPTIONS: ReadonlyArray<{ label: string; value: TravelMode }> =
   { label: 'Trotro', value: 'transit' },
   { label: 'Walk', value: 'foot' },
   { label: 'Bike', value: 'bicycle' },
+  { label: 'Truck', value: 'truck' },
 ] as const;
 
 export const NARRATION_OPTIONS: ReadonlyArray<{ label: string; value: RouteNarration }> = [

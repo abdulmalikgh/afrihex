@@ -167,8 +167,29 @@ Split a free-text Ghanaian address into structured components + landmark anchors
 ```
 
 Endpoints accept `hex` or `point` (or `gps_code`). `mode`: `driving | foot | bicycle |
-motor_scooter`. `narration`: `landmark | street | both`. `lite: true` returns polyline +
+motor_scooter | truck`. `narration`: `landmark | street | both`. `lite: true` returns polyline +
 ETA only (~80–90% smaller — good for slow connections).
+
+`truck` is a genuine costing profile, not an alias for `driving` — tracks and living
+streets are penalised harder, and OSM `hgv` / `maxheight` / `maxweight` / `maxwidth` are
+honoured. Any other mode is rejected with `VALIDATION_ERROR` ("must be driving, foot,
+bicycle, motor_scooter, or truck").
+
+Truck mode also accepts an optional `truck` object of vehicle dimensions — all fields
+optional, metres and metric tonnes:
+
+```json
+"truck": { "height_m": 4.2, "weight_t": 18, "axle_count": 3 }
+```
+
+Omit what you don't know rather than guessing: an overstated height silently rules out
+roads the vehicle could legally use. Sending `truck` with any non-truck mode is a
+`400 VALIDATION_ERROR`, not ignored.
+
+Expect little visible difference today — Ghana's OSM carries few truck restrictions
+(77 `maxheight` ways, 0 `maxweight`, 6 `hgv`, measured 2026-08-12). On trunk corridors
+`truck` returns the same route as `driving`; it diverges mainly on poor-quality roads.
+The app sends bare `mode: "truck"` and no dimensions.
 
 ### Full route — `POST /v2/route`
 

@@ -14,10 +14,11 @@ import { Flag } from 'lucide-react-native';
 import { AppText } from '../../../components';
 import { colors } from '../../../constants/colors';
 import { mapDarkStyle } from '../../../constants/mapStyle';
-import { mapColors } from '../../../constants/material';
+import { mapColors, mapRoute, mapRouteStroke } from '../../../constants/material';
+import { canUseNativeMaps } from '../../../constants/nativeMaps';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
-import type { LandmarkPassed } from '../../../api/route';
+import type { LandmarkPassed, RoutePoint, RouteStep } from '../../../api/route';
 import type {
   FloodZone,
   PrecipitationPoint,
@@ -28,8 +29,8 @@ import type {
 import type { ResolvedFindGpsResult } from '../../../utils/resolveAddressQuery';
 import type { PlannedRoute } from '../types/directions';
 import type { AvoidLocation } from '../hooks/useAvoidLocations';
+import { ManeuverMarker } from './ManeuverMarker';
 import {
-  INACTIVE_ROUTE_STROKE,
   getFloodZoneStyle,
   getIncidentStyle,
   getPrecipitationCircle,
@@ -53,6 +54,13 @@ type RouteMapProps = {
   route: PlannedRoute | null;
   /** `null` shows the primary route; otherwise the alternative at that index. */
   selectedAlternativeIndex: number | null;
+  /**
+   * Step the user tapped in the list. Highlighted on the line and pinned at its
+   * junction. Cleared when the step list is dismissed.
+   */
+  highlightedStepIndex?: number | null;
+  /** Live guidance state. Present only while a trip is in progress. */
+  navigation?: RouteMapNavigation;
   avoidLocations: AvoidLocation[];
   floodZones: FloodZone[];
   weatherAlerts: WeatherAlert[];
@@ -64,11 +72,32 @@ type RouteMapProps = {
   onRemoveAvoidLocation: (id: string) => void;
 };
 
+/**
+ * What the map needs to draw an active trip.
+ *
+ * Passed as one object rather than six props so the map can tell "planning" from
+ * "navigating" by the presence of this value. That distinction drives the colour
+ * roles, and a `isNavigating` boolean alongside individually-optional fields
+ * would allow the inconsistent combination where the line is blue but there is no
+ * progress to draw.
+ */
+export type RouteMapNavigation = {
+  /** Step the device is travelling; drawn dimmed as already-driven. */
+  activeStepIndex: number;
+  /** Step being announced; drawn blue with the manoeuvre pinned. */
+  nextStepIndex: number | null;
+  offRoute: boolean;
+  /** Last fix. The camera reframes on it; the native blue dot draws it. */
+  userPosition: RoutePoint | null;
+};
+
 export function RouteMap({
   from,
   to,
   route,
   selectedAlternativeIndex,
+  highlightedStepIndex = null,
+  navigation,
   avoidLocations,
   floodZones,
   weatherAlerts,
@@ -88,6 +117,20 @@ export function RouteMap({
   const activeCoordinates = useMemo(
     () => (selectedAlternative ? selectedAlternative.coordinates : (route?.coordinates ?? [])),
     [route, selectedAlternative],
+  );
+
+  /**
+   * The one step whose junction gets a pin.
+   *
+   * During a trip the pin follows guidance; otherwise it follows the user's tap.
+   * Resolved to a single index rather than two so the map can never draw two pins
+   * on one junction, which is what independent checks for each would allow the
+   * moment a trip starts while a step is still highlighted.
+   */
+  const pinnedStepIndex = navigation ? navigation.nextStepIndex : highlightedStepIndex;
+  const pinnedJunction = useMemo(
+    () => (route && pinnedStepIndex !== null ? getStepJunction(route.steps[pinnedStepIndex]) : null),
+    [pinnedStepIndex, route],
   );
 
   useEffect(() => {
@@ -115,7 +158,38 @@ export function RouteMap({
     }
   }, [activeCoordinates, from, mapPaddingTop, to]);
 
-  if (Platform.OS === 'web') {
+  /**
+   * Keeps the device and the road it is about to turn onto in frame during a trip.
+   *
+   * Keyed on the manoeuvre rather than the position: re-framing on every fix
+   * would move the map ten metres at a time for as long as the driver was
+   * stopped at a light, which is nauseating and cancels out any panning they
+   * did themselves. A few frames per trip is what this needs.
+   */
+  useEffect(() => {
+    if (!navigation || !navigation.userPosition) {
+      return;
+    }
+
+    const here = toLatLng([navigation.userPosition.lng, navigation.userPosition.lat]);
+    const next = getStepJunction(route?.steps[navigation.nextStepIndex ?? -1]);
+
+    if (next) {
+      mapRef.current?.fitToCoordinates([here, toLatLng(next)], {
+        edgePadding: { top: mapPaddingTop + 40, right: 70, bottom: 220, left: 70 },
+        animated: true,
+      });
+      return;
+    }
+
+    // Past the last manoeuvre, frame what is left of the trip.
+    mapRef.current?.fitToCoordinates(
+      [here, ...activeCoordinates.slice(-1).map(toLatLng)],
+      { edgePadding: { top: mapPaddingTop + 40, right: 70, bottom: 220, left: 70 }, animated: true },
+    );
+  }, [activeCoordinates, mapPaddingTop, navigation, route]);
+
+  if (Platform.OS === 'web' || !canUseNativeMaps) {
     return <WebFallback />;
   }
 
@@ -136,6 +210,8 @@ export function RouteMap({
       scrollEnabled
       rotateEnabled={false}
       pitchEnabled={false}
+      showsUserLocation={navigation !== undefined}
+      showsMyLocationButton={false}
       onLongPress={(event: LongPressEvent) => {
         const { latitude, longitude } = event.nativeEvent.coordinate;
         onLongPress(latitude, longitude);
@@ -195,8 +271,8 @@ export function RouteMap({
               <Polyline
                 key={`alternative-${index}`}
                 coordinates={alternative.coordinates.map(toLatLng)}
-                strokeColor={INACTIVE_ROUTE_STROKE}
-                strokeWidth={4}
+                strokeColor={mapRoute.inactive}
+                strokeWidth={mapRouteStroke.inactive}
                 lineCap="round"
                 lineJoin="round"
               />
@@ -210,22 +286,42 @@ export function RouteMap({
         <Polyline
           coordinates={selectedAlternative.coordinates.map(toLatLng)}
           strokeColor={mapColors.primary}
-          strokeWidth={5}
+          strokeWidth={mapRouteStroke.planned}
           lineCap="round"
           lineJoin="round"
         />
       ) : (
         route?.steps.map((step, index) => (
-          <Polyline
+          <RouteStepLine
             key={`step-${index}`}
-            coordinates={step.coordinates.map(toLatLng)}
-            strokeColor={step.traffic_color ?? mapColors.primary}
-            strokeWidth={5}
-            lineCap="round"
-            lineJoin="round"
+            coordinates={step.coordinates}
+            trafficColor={step.traffic_color}
+            tone={
+              navigation
+                ? navigation.offRoute
+                  ? 'offRoute'
+                  : index <= navigation.activeStepIndex
+                    ? 'travelled'
+                    : 'active'
+                : index === highlightedStepIndex
+                  ? 'selected'
+                  : 'planned'
+            }
           />
         ))
       )}
+
+      {/* Where the manoeuvre is. Tracked rather than cached because the arrow
+          changes as guidance advances, and Android will not repaint a marker's
+          bitmap without this. */}
+      {pinnedJunction && pinnedStepIndex !== null ? (
+        <ManeuverMarker
+          coordinate={toLatLng(pinnedJunction)}
+          stepIndex={pinnedStepIndex}
+          steps={route?.steps ?? []}
+          tracksViewChanges={navigation !== undefined}
+        />
+      ) : null}
 
       {route && selectedAlternativeIndex === null
         ? route.landmarksPassed.map((landmark) => <LandmarkDot key={landmark.slug} landmark={landmark} />)
@@ -281,6 +377,86 @@ export function RouteMap({
       ))}
     </MapView>
   );
+}
+
+type RouteStepTone = 'planned' | 'selected' | 'active' | 'travelled' | 'offRoute';
+
+/**
+ * One step of the route, drawn in whichever colour its state calls for.
+ *
+ * Split out because two of the tones need a second, wider line behind them: on a
+ * dark map a heavier green line only reads as brighter, but a heavier line with a
+ * dark casing reads as *nearer*. The casing is drawn first so the coloured line
+ * sits on top of it.
+ */
+function RouteStepLine({
+  coordinates,
+  trafficColor,
+  tone,
+}: {
+  coordinates: Array<[number, number]>;
+  trafficColor?: string;
+  tone: RouteStepTone;
+}) {
+  const points = coordinates.map(toLatLng);
+
+  // A step with fewer than two vertices cannot be a line. The API repeats a
+  // vertex at a manoeuvre, and a one-point step is a real response shape rather
+  // than a broken one — drawing it would throw inside the native view.
+  if (points.length < 2) {
+    return null;
+  }
+
+  if (tone === 'selected' || tone === 'active') {
+    const casingWidth = tone === 'selected' ? mapRouteStroke.selectedCasing : mapRouteStroke.activeCasing;
+    const casingColor = tone === 'selected' ? mapRoute.selectedCasing : colors.black;
+
+    return (
+      <>
+        <Polyline
+          coordinates={points}
+          strokeColor={casingColor}
+          strokeWidth={casingWidth}
+          lineCap="round"
+          lineJoin="round"
+        />
+        <Polyline
+          coordinates={points}
+          strokeColor={tone === 'selected' ? mapRoute.selected : mapRoute.offRoute}
+          strokeWidth={tone === 'selected' ? mapRouteStroke.selected : mapRouteStroke.active}
+          lineCap="round"
+          lineJoin="round"
+        />
+      </>
+    );
+  }
+
+  return (
+    <Polyline
+      coordinates={points}
+      // The traffic tint is a planning signal only. During a trip there is no live
+      // traffic feed without a reroute, so carrying a stale tint onto the line the
+      // driver is following would be claiming to know something we do not.
+      strokeColor={
+        tone === 'planned' ? (trafficColor ?? mapRoute.planned) : tone === 'travelled' ? mapRoute.travelled : mapRoute.offRoute
+      }
+      strokeWidth={tone === 'travelled' ? mapRouteStroke.travelled : mapRouteStroke.planned}
+      lineCap="round"
+      lineJoin="round"
+    />
+  );
+}
+
+/**
+ * A step's junction, as the API's `[lng, lat]` pair.
+ *
+ * The *start* of the step's geometry, which is a step boundary under both of the
+ * API's readings of where a manoeuvre sits. See `turnGuidance.buildJunctions`.
+ */
+function getStepJunction(step: RouteStep | undefined) {
+  const first = step?.coordinates[0];
+
+  return first ?? null;
 }
 
 function EndpointMarker({

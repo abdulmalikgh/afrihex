@@ -50,11 +50,18 @@ export function registerWithEmail(body: RegisterRequest): Promise<AuthSession> {
   });
 }
 
-export function exchangeGoogleCode(code: string): Promise<AuthSession> {
+/**
+ * Exchanges a Google **id_token** obtained natively in the app (Google Sign-In
+ * SDK) for an AfriHex session. This is the mobile-native flow documented in
+ * `MOBILE_API_EXAMPLES.md` — no browser redirect involved, so the user always
+ * lands back in the app. The backend requires the id_token's `aud` to be the
+ * web client id or `GOOGLE_MOBILE_CLIENT_ID`.
+ */
+export function exchangeGoogleIdToken(idToken: string): Promise<AuthSession> {
   return apiRequest({
-    path: '/v2/auth/google/exchange',
+    path: '/v2/auth/google/mobile',
     method: 'POST',
-    body: { code },
+    body: { id_token: idToken },
     parseData: parseAuthSession,
   });
 }

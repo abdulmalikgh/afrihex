@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Share, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -18,7 +19,9 @@ import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
 import { useAuthSession } from '../../authentication/context/AuthSessionProvider';
 import { DirectionsOverlay } from '../components/DirectionsOverlay';
 import { MapLayersControl } from '../components/MapLayersControl';
-import { RouteMap } from '../components/RouteMap';
+import { NavigationControls } from '../components/NavigationControls';
+import { NavigationHud } from '../components/NavigationHud';
+import { RouteMap, type RouteMapNavigation } from '../components/RouteMap';
 import { ReportIncidentSheet } from '../components/ReportIncidentSheet';
 import { RouteResultSheet } from '../components/RouteResultSheet';
 import { TransitResultSheet } from '../components/TransitResultSheet';
@@ -27,6 +30,7 @@ import { useAvoidLocations } from '../hooks/useAvoidLocations';
 import { useDirectionsPlanner } from '../hooks/useDirectionsPlanner';
 import { useMapLayers, useRouteLandmarks } from '../hooks/useMapLayers';
 import { useRouteEndpointSearch } from '../hooks/useRouteEndpointSearch';
+import { useTurnByTurn, type NavigationPhase } from '../hooks/useTurnByTurn';
 import {
   MODE_OPTIONS,
   buildRouteRequest,
@@ -49,6 +53,46 @@ type MapTapMode = 'endpoint' | 'avoid' | 'report';
  * resize, not a step in the cycle.
  */
 const SHEET_TAP_CYCLE: readonly SheetSnapIndex[] = [0, 2, -1];
+
+/**
+ * Phases where the trip is still live — GPS is being watched, and the arrival
+ * has not been claimed yet.
+ *
+ * Kept separate from the phases that show the guidance UI because `arrived` wants
+ * the banner to stay up for a beat after the watch is torn down, but must not keep
+ * the screen awake or hold the arrival report hostage.
+ */
+const LIVE_PHASES: ReadonlySet<NavigationPhase> = new Set(['starting', 'navigating', 'offRoute']);
+
+/** Phases that replace the planning chrome with the navigation chrome. */
+const GUIDANCE_PHASES: ReadonlySet<NavigationPhase> = new Set([
+  ...LIVE_PHASES,
+  'arrived',
+  // Both failures leave a `message` on the hook's state, and the HUD is the only
+  // thing that renders it. Without these here the user taps Navigate, refuses
+  // the permission prompt, and the screen goes back to looking untouched.
+  'denied',
+  'error',
+]);
+
+/**
+ * Phases where the line is being followed, or has just been.
+ *
+ * `arrived` is in this set but not in `LIVE_PHASES`: the route should not flip
+ * from blue back to the planning green at the exact moment the driver pulls up,
+ * which is the moment they are most likely to be looking straight at the map.
+ * The two failure phases are out because nothing was ever followed.
+ */
+const ROUTE_FOLLOWED_PHASES: ReadonlySet<NavigationPhase> = new Set([...LIVE_PHASES, 'arrived']);
+
+/**
+ * Every branch of `handleMapLongPress` edits an endpoint or an avoid location,
+ * and any of those changes the route request — which would replan the line out
+ * from under an active trip and leave guidance following geometry the map no
+ * longer draws. Swapping the handler out is what stops that; a long-press
+ * mid-drive is most likely a fat-fingered drag, so it should do nothing at all.
+ */
+const ignoreLongPress = () => undefined;
 
 /** Destination handed over by Find, so the user never retypes a place they just found. */
 type DirectionsParams = {
@@ -82,6 +126,8 @@ export function DirectionsScreen() {
   const [headerHeight, setHeaderHeight] = useState(0);
   const [isLayersOpen, setIsLayersOpen] = useState(false);
   const [selectedAlternativeIndex, setSelectedAlternativeIndex] = useState<number | null>(null);
+  /** Step pinned on the map by a tap in the list. Null when nothing is pinned. */
+  const [highlightedStepIndex, setHighlightedStepIndex] = useState<number | null>(null);
   const [reportPoint, setReportPoint] = useState<{ lat: number; lng: number } | null>(null);
 
   const router = useRouter();
@@ -445,11 +491,56 @@ export function DirectionsScreen() {
     [to],
   );
 
+  const turnByTurn = useTurnByTurn({
+    route: plannedRoute,
+    mode: isRouteMode(mode) ? mode : 'foot',
+    origin: originPoint,
+    destination: destinationPoint,
+    destinationLabel: to ? getEndpointLabel(to) : 'your destination',
+  });
+
+  const { phase: navigationPhase, start: startNavigation, stop: stopNavigation } = turnByTurn;
+  const isNavigating = LIVE_PHASES.has(navigationPhase);
+  const showGuidance = GUIDANCE_PHASES.has(navigationPhase);
+  const isFollowingRoute = ROUTE_FOLLOWED_PHASES.has(navigationPhase);
+
+  /**
+   * The map's slice of the trip.
+   *
+   * `null` rather than a partial object when not navigating: the map treats the
+   * presence of this value as "a trip is in progress" and switches its colour
+   * roles on it, so an object of zeros would paint a blue route for a trip that
+   * has not started.
+   */
+  const mapNavigation: RouteMapNavigation | null = useMemo(
+    () =>
+      isFollowingRoute
+        ? {
+            activeStepIndex: turnByTurn.activeStepIndex,
+            nextStepIndex: turnByTurn.nextStepIndex,
+            offRoute: navigationPhase === 'offRoute',
+            userPosition: turnByTurn.userPosition,
+          }
+        : null,
+    [
+      isFollowingRoute,
+      navigationPhase,
+      turnByTurn.activeStepIndex,
+      turnByTurn.nextStepIndex,
+      turnByTurn.userPosition,
+    ],
+  );
+
   const arrival = useArrivalReport({
     origin: originPoint,
     destination: destinationPoint,
     route: plannedRoute,
     mode: isRouteMode(mode) ? mode : 'foot',
+    // Withheld for the whole of a trip, not just once guidance is running: the
+    // hook's watch and the guidance watch would otherwise both be live between
+    // tapping Navigate and the first fix, which is exactly when a driver is
+    // closest to the destination if they were planning from here.
+    enabled: !isNavigating,
   });
 
   /**
@@ -476,6 +567,36 @@ export function DirectionsScreen() {
       ].join('\n'),
     });
   }, [from, mode, plannedRoute, to]);
+
+  /**
+   * Keeps the screen lit for as long as guidance is running.
+   *
+   * iOS dims the display on its idle timer partway through a turn, which on a
+   * navigation screen is the one thing that must not happen — the driver either
+   * misses the turn or fumbles for the screen and does something worse. Android's
+   * behaviour is less aggressive but the same cost applies.
+   */
+  useEffect(() => {
+    if (!isNavigating) {
+      return;
+    }
+
+    void activateKeepAwakeAsync().catch(() => undefined);
+
+    return () => {
+      deactivateKeepAwake();
+    };
+  }, [isNavigating]);
+
+  const handleStartNavigation = useCallback(() => {
+    setHighlightedStepIndex(null);
+    startNavigation();
+  }, [startNavigation]);
+
+  const handleStopNavigation = useCallback(() => {
+    stopNavigation();
+    hapticSelection();
+  }, [stopNavigation]);
 
   const handleReportArrival = useCallback(() => {
     arrival.reportManually();
@@ -522,6 +643,8 @@ export function DirectionsScreen() {
           to={to}
           route={plannedRoute}
           selectedAlternativeIndex={selectedAlternativeIndex}
+          highlightedStepIndex={highlightedStepIndex}
+          navigation={mapNavigation ?? undefined}
           avoidLocations={avoidLocations.items}
           floodZones={mapLayers.floodZones}
           weatherAlerts={mapLayers.weatherAlerts}
@@ -529,61 +652,78 @@ export function DirectionsScreen() {
           incidents={mapLayers.incidents}
           routeLandmarks={routeLandmarks}
           mapPaddingTop={sheetTopInset}
-          onLongPress={handleMapLongPress}
+          onLongPress={isNavigating ? ignoreLongPress : handleMapLongPress}
           onRemoveAvoidLocation={avoidLocations.remove}
         />
 
-        <DirectionsOverlay
-          topInset={insets.top}
-          onBack={() => router.back()}
-          onLayoutHeight={setHeaderHeight}
-          fromQuery={fromQuery}
-          toQuery={toQuery}
-          onFromChangeText={handleFromChangeText}
-          onToChangeText={handleToChangeText}
-          onFromSubmit={handleFromSubmit}
-          onToSubmit={handleToSubmit}
-          onFocusField={setFocusedField}
-          focusedField={focusedField}
-          fromState={fromEndpoint.state}
-          toState={toEndpoint.state}
-          suggestions={suggestions}
-          onSuggestionPress={handleSuggestionPress}
-          onSwap={handleSwap}
-          isLocating={isLocating}
-          locatingField={locatingField}
-          onCurrentLocation={(field) => void handleCurrentLocation(field)}
-          locationMessage={locationMessage}
-          mode={mode}
-          onModeChange={handleModeChange}
-          narration={narration}
-          onNarrationChange={handleNarrationChange}
-          avoidFloodZones={avoidFloodZones}
-          onToggleAvoidFloodZones={setAvoidFloodZones}
-          avoidIncidents={avoidIncidents}
-          onToggleAvoidIncidents={setAvoidIncidents}
-          liteRoute={liteRoute}
-          onToggleLiteRoute={setLiteRoute}
-          avoidLocations={avoidLocations.items}
-          onRemoveAvoidLocation={avoidLocations.remove}
-          isAddingAvoidLocation={mapTapMode === 'avoid'}
-          onToggleAddAvoidLocation={handleToggleAddAvoidLocation}
-          isReportingHazard={mapTapMode === 'report'}
-          onToggleReportHazard={() => void handleReportHazard()}
-          isMenuOpen={isMenuOpen}
-          onOpenMenu={() => setIsMenuOpen(true)}
-          onCloseMenu={() => setIsMenuOpen(false)}
-          isPlanning={planner.state.status === 'loading'}
-        />
+        {showGuidance ? (
+          <NavigationHud
+            phase={navigationPhase}
+            steps={plannedRoute?.steps ?? []}
+            activeStepIndex={turnByTurn.activeStepIndex}
+            nextStepIndex={turnByTurn.nextStepIndex}
+            followingStepIndex={turnByTurn.followingStepIndex}
+            distanceToManeuverM={turnByTurn.distanceToManeuverM}
+            topInset={insets.top}
+            message={turnByTurn.message}
+            onRepeat={turnByTurn.repeatInstruction}
+            isVoiceAudible={turnByTurn.verbosity !== 'muted'}
+          />
+        ) : (
+          <DirectionsOverlay
+            topInset={insets.top}
+            onBack={() => router.back()}
+            onLayoutHeight={setHeaderHeight}
+            fromQuery={fromQuery}
+            toQuery={toQuery}
+            onFromChangeText={handleFromChangeText}
+            onToChangeText={handleToChangeText}
+            onFromSubmit={handleFromSubmit}
+            onToSubmit={handleToSubmit}
+            onFocusField={setFocusedField}
+            focusedField={focusedField}
+            fromState={fromEndpoint.state}
+            toState={toEndpoint.state}
+            suggestions={suggestions}
+            onSuggestionPress={handleSuggestionPress}
+            onSwap={handleSwap}
+            isLocating={isLocating}
+            locatingField={locatingField}
+            onCurrentLocation={(field) => void handleCurrentLocation(field)}
+            locationMessage={locationMessage}
+            mode={mode}
+            onModeChange={handleModeChange}
+            narration={narration}
+            onNarrationChange={handleNarrationChange}
+            avoidFloodZones={avoidFloodZones}
+            onToggleAvoidFloodZones={setAvoidFloodZones}
+            avoidIncidents={avoidIncidents}
+            onToggleAvoidIncidents={setAvoidIncidents}
+            liteRoute={liteRoute}
+            onToggleLiteRoute={setLiteRoute}
+            avoidLocations={avoidLocations.items}
+            onRemoveAvoidLocation={avoidLocations.remove}
+            isAddingAvoidLocation={mapTapMode === 'avoid'}
+            onToggleAddAvoidLocation={handleToggleAddAvoidLocation}
+            isReportingHazard={mapTapMode === 'report'}
+            onToggleReportHazard={() => void handleReportHazard()}
+            isMenuOpen={isMenuOpen}
+            onOpenMenu={() => setIsMenuOpen(true)}
+            onCloseMenu={() => setIsMenuOpen(false)}
+            isPlanning={planner.state.status === 'loading'}
+            />
+          )}
 
-        {/* The suggestion list and the location notice both occupy the strip
-            directly under the header, which is where this button lives — so it
-            stands down while either of them is on screen rather than floating
-            over their text. */}
-        {isHeaderRegionBusy ? null : (
-          <MapLayersControl
-            layers={mapLayers.layers}
-            activeCount={mapLayers.activeCount}
+          {/* The suggestion list and the location notice both occupy the strip
+              directly under the header, which is where this button lives — so it
+              stands down while either of them is on screen rather than floating
+              over their text. It also stands down during a trip: picking hazard
+              and flood layers is planning, and the control sits high enough on the
+              screen to be reachable by the hand that is meant to be on the wheel. */}
+          {isHeaderRegionBusy || isNavigating ? null : (
+            <MapLayersControl
+              layers={mapLayers.layers}
+              activeCount={mapLayers.activeCount}
             onToggle={mapLayers.toggle}
             isOpen={isLayersOpen}
             onOpen={() => setIsLayersOpen(true)}
@@ -608,37 +748,54 @@ export function DirectionsScreen() {
         {/* Rendered even when idle: the sheet is where a mode selection shows up
             before there is a route to redraw, so hiding it is what made the mode
             tabs look inert. */}
-        <BottomSheet
-          index={sheetIndex}
-          onIndexChange={handleSheetIndexChange}
-          availableHeight={stageHeight || undefined}
-          topInset={sheetTopInset}
-          bottomInset={insets.bottom || spacing.md}
-          minimizedLabel={minimizedLabel}
-          tapCycle={SHEET_TAP_CYCLE}
-        >
-          {mode === 'transit' ? (
-            <TransitResultSheet
-              isLoading={transitQuery.isPending && from !== null && to !== null}
-              hasEndpoints={from !== null && to !== null}
-              plan={transitQuery.data ?? null}
-              errorMessage={transitQuery.error ? 'Could not plan that trip.' : null}
-            />
-          ) : (
-          <RouteResultSheet
-            state={planner.state}
-            selectedAlternativeIndex={selectedAlternativeIndex}
-            onSelectAlternative={setSelectedAlternativeIndex}
-            onShare={() => void handleShareRoute()}
-            onReportArrival={handleReportArrival}
-            hasReportedArrival={arrival.hasReported}
-            modeLabel={modeLabel}
-            hasOrigin={from !== null}
-            hasDestination={to !== null}
-            isLiteRoute={liteRoute}
+        {showGuidance ? (
+          <NavigationControls
+            phase={navigationPhase}
+            bottomInset={insets.bottom || spacing.md}
+            verbosity={turnByTurn.verbosity}
+            isBackgroundTracked={turnByTurn.isBackgroundTracked}
+            remainingM={turnByTurn.remainingM}
+            remainingS={turnByTurn.remainingS}
+            onCycleVerbosity={turnByTurn.cycleVerbosity}
+            onStop={handleStopNavigation}
+            onDismiss={turnByTurn.dismiss}
           />
-          )}
-        </BottomSheet>
+        ) : (
+          <BottomSheet
+            index={sheetIndex}
+            onIndexChange={handleSheetIndexChange}
+            availableHeight={stageHeight || undefined}
+            topInset={sheetTopInset}
+            bottomInset={insets.bottom || spacing.md}
+            minimizedLabel={minimizedLabel}
+            tapCycle={SHEET_TAP_CYCLE}
+          >
+            {mode === 'transit' ? (
+              <TransitResultSheet
+                isLoading={transitQuery.isPending && from !== null && to !== null}
+                hasEndpoints={from !== null && to !== null}
+                plan={transitQuery.data ?? null}
+                errorMessage={transitQuery.error ? 'Could not plan that trip.' : null}
+              />
+            ) : (
+            <RouteResultSheet
+              state={planner.state}
+              selectedAlternativeIndex={selectedAlternativeIndex}
+              onSelectAlternative={setSelectedAlternativeIndex}
+              onShare={() => void handleShareRoute()}
+              onReportArrival={handleReportArrival}
+              hasReportedArrival={arrival.hasReported}
+              modeLabel={modeLabel}
+              hasOrigin={from !== null}
+              hasDestination={to !== null}
+              isLiteRoute={liteRoute}
+              selectedStepIndex={highlightedStepIndex}
+              onSelectStep={setHighlightedStepIndex}
+              onStartNavigation={handleStartNavigation}
+            />
+            )}
+          </BottomSheet>
+        )}
       </View>
     </Screen>
   );

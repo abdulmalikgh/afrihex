@@ -61,7 +61,7 @@ Use:
 
 Support:
 
-- mode: `driving`, `foot`, `bicycle`, `motor_scooter`
+- mode: `driving`, `foot`, `bicycle`, `motor_scooter`, `truck`
 - narration: `landmark`, `street`, `both`
 - `avoid_flood_zones`
 - route summary, warnings, ETA, distance, and step list

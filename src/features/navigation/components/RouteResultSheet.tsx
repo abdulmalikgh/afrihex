@@ -1,16 +1,28 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Check, Flag, Megaphone, Milestone, Share2, Signpost, TriangleAlert, Waves } from 'lucide-react-native';
+import {
+  Check,
+  Flag,
+  Megaphone,
+  Milestone,
+  Navigation,
+  Share2,
+  Signpost,
+  TriangleAlert,
+  Volume2,
+  Waves,
+} from 'lucide-react-native';
 
-import { AppText, EmptyState, ErrorBanner, LoadingState } from '../../../components';
+import { AppButton, AppText, EmptyState, ErrorBanner, LoadingState } from '../../../components';
 import { colors } from '../../../constants/colors';
-import { mapColors } from '../../../constants/material';
+import { mapColors, mapRoute } from '../../../constants/material';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
 import { formatDistance } from '../../../utils/landmarkKinds';
 import type { RouteAlternative } from '../../../api/route';
 import type { DirectionsState, PlannedRoute } from '../types/directions';
 import { formatDuration } from '../utils/directionsFormatting';
+import { repeatGuidance } from '../utils/speech';
 
 type RouteResultSheetProps = {
   state: DirectionsState;
@@ -26,6 +38,10 @@ type RouteResultSheetProps = {
   hasDestination: boolean;
   /** Data saver is on, so the response deliberately carries no steps. */
   isLiteRoute: boolean;
+  /** The step pinned on the map, or `null` when nothing is highlighted. */
+  selectedStepIndex: number | null;
+  onSelectStep: (index: number | null) => void;
+  onStartNavigation: () => void;
 };
 
 export function RouteResultSheet({
@@ -39,6 +55,9 @@ export function RouteResultSheet({
   hasOrigin,
   hasDestination,
   isLiteRoute,
+  selectedStepIndex,
+  onSelectStep,
+  onStartNavigation,
 }: RouteResultSheetProps) {
   /**
    * Nothing has been planned yet — which is also what the user sees after
@@ -82,6 +101,14 @@ export function RouteResultSheet({
   const summaryDistanceM = selected ? selected.distance_m : route.distanceM;
   // Only landmarks with a live promotion; the field is empty outside its window.
   const promotions = selected ? [] : route.landmarksPassed.filter((landmark) => landmark.promotion_text);
+  /**
+   * Guidance needs both the steps and the primary line to be the one on screen.
+   *
+   * A lite route has no steps, and an alternative is drawn as one undivided
+   * polyline with no per-step geometry — offering to navigate either would
+   * promise turn-by-turn along a line we cannot split at a junction.
+   */
+  const canNavigate = !isLiteRoute && !selected && route.steps.length > 0;
 
   return (
     <View style={styles.container}>
@@ -110,6 +137,19 @@ export function RouteResultSheet({
           />
         </View>
       </View>
+
+      {/* Above the fold deliberately: this is the action the sheet exists to
+          offer, and the steps below it can be a long scroll on a city route. */}
+      {canNavigate ? (
+        <AppButton
+          icon={<Navigation color={colors.onPrimary} size={18} />}
+          accessibilityLabel={`Start ${modeLabel.toLowerCase()} guidance`}
+          accessibilityHint="AfriHex will guide you with spoken turn-by-turn directions"
+          onPress={onStartNavigation}
+        >
+          Navigate
+        </AppButton>
+      ) : null}
 
       {badges.length > 0 ? (
         <View style={styles.badgeRow}>
@@ -197,43 +237,84 @@ export function RouteResultSheet({
             Turn-by-turn steps are only available for the main route. Select it above to read them.
           </AppText>
         ) : (
-          route.steps.map((step, index) => (
-            <View key={index} style={styles.stepRow}>
-              <View style={[styles.stepDot, step.traffic_color ? { backgroundColor: step.traffic_color } : null]} />
-              <View style={styles.stepText}>
-                <AppText variant="body">{step.instruction}</AppText>
-                {step.instruction_landmark ? (
-                  <AppText variant="caption" tone="muted">
-                    {step.instruction_landmark}
-                  </AppText>
-                ) : null}
-                <AppText variant="caption" tone="faint">
-                  {formatDistance(step.distance_m)}
-                </AppText>
+          route.steps.map((step, index) => {
+            const isSelected = index === selectedStepIndex;
 
-                {/* Lane tagging exists on very few Ghanaian roads, so this is a
-                    bonus on the steps that have it rather than a row the
-                    instruction waits for. */}
-                {step.lanes && step.lanes.length > 0 ? (
-                  <View style={styles.laneRow}>
-                    {step.lanes.map((lane, laneIndex) => (
-                      <View
-                        key={laneIndex}
-                        style={[styles.lane, lane.active && styles.laneActive]}
-                        accessibilityLabel={`${lane.indications.join(' or ') || 'lane'}${
-                          lane.active ? ', use this lane' : ''
-                        }`}
-                      >
-                        <AppText variant="caption" tone={lane.active ? 'primary' : 'faint'}>
-                          {formatLane(lane.indications)}
-                        </AppText>
-                      </View>
-                    ))}
+            return (
+              <Pressable
+                key={index}
+                accessibilityRole="button"
+                accessibilityLabel={step.instruction}
+                accessibilityHint="Highlights this turn on the map"
+                accessibilityState={{ selected: isSelected }}
+                onPress={() => onSelectStep(isSelected ? null : index)}
+                style={({ pressed }) => [
+                  styles.stepRow,
+                  isSelected && styles.stepRowSelected,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.stepDot,
+                    step.traffic_color ? { backgroundColor: step.traffic_color } : null,
+                    isSelected && styles.stepDotSelected,
+                  ]}
+                />
+                <View style={styles.stepText}>
+                  <View style={styles.stepInstructionRow}>
+                    <AppText variant="body" style={styles.stepInstruction}>
+                      {step.instruction}
+                    </AppText>
+                    {/* Lets a driver hear a turn without leaving the list or
+                        starting a trip. Goes through `repeatGuidance` rather
+                        than the guidance path because this is a direct request:
+                        it interrupts whatever is playing and is not subject to
+                        the verbosity filter. Muting still silences it. */}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Read aloud: ${step.verbal_instruction ?? step.instruction}`}
+                      accessibilityHint="Speaks this turn"
+                      hitSlop={8}
+                      onPress={() => repeatGuidance(step.verbal_instruction ?? step.instruction)}
+                      style={({ pressed }) => [styles.stepSpeak, pressed && styles.pressed]}
+                    >
+                      <Volume2 color={mapColors.onSurfaceVariant} size={16} />
+                    </Pressable>
                   </View>
-                ) : null}
-              </View>
-            </View>
-          ))
+                  {step.instruction_landmark ? (
+                    <AppText variant="caption" tone="muted">
+                      {step.instruction_landmark}
+                    </AppText>
+                  ) : null}
+                  <AppText variant="caption" tone="faint">
+                    {formatDistance(step.distance_m)}
+                  </AppText>
+
+                  {/* Lane tagging exists on very few Ghanaian roads, so this is a
+                      bonus on the steps that have it rather than a row the
+                      instruction waits for. */}
+                  {step.lanes && step.lanes.length > 0 ? (
+                    <View style={styles.laneRow}>
+                      {step.lanes.map((lane, laneIndex) => (
+                        <View
+                          key={laneIndex}
+                          style={[styles.lane, lane.active && styles.laneActive]}
+                          accessibilityLabel={`${lane.indications.join(' or ') || 'lane'}${
+                            lane.active ? ', use this lane' : ''
+                          }`}
+                        >
+                          <AppText variant="caption" tone={lane.active ? 'primary' : 'faint'}>
+                            {formatLane(lane.indications)}
+                          </AppText>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              </Pressable>
+            );
+          })
         )}
       </View>
     </View>
@@ -588,8 +669,37 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: spacing.sm,
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  /**
+   * Selection is carried by a left-edge bar as well as a background tint. The
+   * tap tints the same green as the highlighted polyline, and the two greens are
+   * too close to separate by hue alone.
+   */
+  stepRowSelected: {
+    backgroundColor: colors.cardAlt,
+    borderLeftWidth: 3,
+    borderLeftColor: mapRoute.selected,
+  },
+  stepInstructionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+  },
+  stepInstruction: {
+    flex: 1,
+  },
+  stepSpeak: {
+    // 44 is the minimum comfortable touch target, but the icon is 16 — padding
+    // gets the target to size without making the row look padded.
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: -spacing.sm,
+    marginTop: -spacing.xs,
   },
   stepDot: {
     width: 8,
@@ -597,6 +707,12 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     borderRadius: radius.round,
     backgroundColor: colors.primary,
+  },
+  /** Beats the traffic tint, which is also green on a clear road. */
+  stepDotSelected: {
+    backgroundColor: mapRoute.selected,
+    borderRadius: 0,
+    transform: [{ rotate: '45deg' }],
   },
   stepText: {
     flex: 1,

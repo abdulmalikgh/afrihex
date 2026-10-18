@@ -18,6 +18,7 @@ import {
   Square,
   SquareCheckBig,
   TriangleAlert,
+  Truck,
   Waves,
   X,
   type LucideIcon,
@@ -53,6 +54,9 @@ const MODE_TABS: ReadonlyArray<{ value: TravelMode; icon: LucideIcon; label: str
   { value: 'transit', icon: Bus, label: 'Trotro' },
   { value: 'bicycle', icon: Bike, label: 'Bike' },
   { value: 'foot', icon: Footprints, label: 'Walk' },
+  // Truck is a real `/v2/route` costing profile, not a UI-only alias, so it sits
+  // with the other vehicle modes and routes under truck restrictions server-side.
+  { value: 'truck', icon: Truck, label: 'Truck' },
 ] as const;
 
 type DirectionsOverlayProps = {

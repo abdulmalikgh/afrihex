@@ -12,6 +12,7 @@ import { AppButton, AppText, BackButton, ErrorBanner, Screen } from '../../../co
 import { colors } from '../../../constants/colors';
 import { mapDarkStyle } from '../../../constants/mapStyle';
 import { mapColors } from '../../../constants/material';
+import { canUseNativeMaps } from '../../../constants/nativeMaps';
 import { radius } from '../../../constants/radius';
 import { spacing } from '../../../constants/spacing';
 import { hapticSuccess } from '../../../utils/haptics';
@@ -150,44 +151,52 @@ export function MeetSessionScreen() {
           <BackButton />
         </View>
 
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          initialRegion={DEFAULT_REGION}
-          customMapStyle={mapDarkStyle}
-          userInterfaceStyle="dark"
-          loadingEnabled
-          loadingBackgroundColor={mapColors.surfaceContainerLow}
-          loadingIndicatorColor={mapColors.primary}
-          rotateEnabled={false}
-          pitchEnabled={false}
-          accessibilityLabel="Meetup map"
-        >
-          {typeof destination.lat === 'number' && typeof destination.lng === 'number' ? (
-            <Marker
-              coordinate={{ latitude: destination.lat, longitude: destination.lng }}
-              tracksViewChanges={false}
-              accessibilityLabel={destination.label ?? 'Destination'}
-            >
-              <View style={styles.destinationPin} />
-            </Marker>
-          ) : null}
-
-          {members.map((member) =>
-            typeof member.lat === 'number' && typeof member.lng === 'number' ? (
+        {canUseNativeMaps ? (
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            initialRegion={DEFAULT_REGION}
+            customMapStyle={mapDarkStyle}
+            userInterfaceStyle="dark"
+            loadingEnabled
+            loadingBackgroundColor={mapColors.surfaceContainerLow}
+            loadingIndicatorColor={mapColors.primary}
+            rotateEnabled={false}
+            pitchEnabled={false}
+            accessibilityLabel="Meetup map"
+          >
+            {typeof destination.lat === 'number' && typeof destination.lng === 'number' ? (
               <Marker
-                key={member.memberId}
-                coordinate={{ latitude: member.lat, longitude: member.lng }}
+                coordinate={{ latitude: destination.lat, longitude: destination.lng }}
                 tracksViewChanges={false}
-                title={member.displayName}
-                description={member.hasArrived ? 'Arrived' : member.role}
-                accessibilityLabel={`${member.displayName}${member.hasArrived ? ', arrived' : ''}`}
+                accessibilityLabel={destination.label ?? 'Destination'}
               >
-                <View style={[styles.memberPin, member.hasArrived && styles.memberPinArrived]} />
+                <View style={styles.destinationPin} />
               </Marker>
-            ) : null,
-          )}
-        </MapView>
+            ) : null}
+
+            {members.map((member) =>
+              typeof member.lat === 'number' && typeof member.lng === 'number' ? (
+                <Marker
+                  key={member.memberId}
+                  coordinate={{ latitude: member.lat, longitude: member.lng }}
+                  tracksViewChanges={false}
+                  title={member.displayName}
+                  description={member.hasArrived ? 'Arrived' : member.role}
+                  accessibilityLabel={`${member.displayName}${member.hasArrived ? ', arrived' : ''}`}
+                >
+                  <View style={[styles.memberPin, member.hasArrived && styles.memberPinArrived]} />
+                </Marker>
+              ) : null,
+            )}
+          </MapView>
+        ) : (
+          <View style={[styles.map, styles.mapFallback]} accessible accessibilityLabel="Meetup map unavailable">
+            <AppText variant="caption" tone="muted" align="center">
+              Map preview unavailable in this build
+            </AppText>
+          </View>
+        )}
 
         <View style={styles.panel}>
           <View style={styles.panelHeader}>
@@ -286,6 +295,11 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
     backgroundColor: mapColors.surfaceContainerLow,
+  },
+  mapFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
   },
   panel: {
     position: 'absolute',

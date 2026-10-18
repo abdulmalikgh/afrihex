@@ -44,7 +44,7 @@ Directions lets a user:
 
 1. Set a From and a To point — searched via the same resolvers FindGPS uses (place name,
    GPS code, hex code, or free text), tapped on the map, or set to current location.
-2. Pick a travel mode: Drive, Okada, Walk, Bike — or switch to Transit (trotro/bus).
+2. Pick a travel mode: Drive, Okada, Walk, Bike, Truck — or switch to Transit (trotro/bus).
 3. Toggle narration style and flood-zone avoidance, and add avoid-locations.
 4. Get a route: distance, ETA, traffic note, warnings, unpaved/flood badges, alternatives.
 5. See the route line on a map, colour-tinted per segment by traffic.
@@ -146,7 +146,7 @@ type RouteEndpoint =
   | { hex: string }
   | { gps_code: string };
 
-type RouteMode = 'driving' | 'foot' | 'bicycle' | 'motor_scooter';
+type RouteMode = 'driving' | 'foot' | 'bicycle' | 'motor_scooter' | 'truck';
 type RouteNarration = 'landmark' | 'street' | 'both';
 
 type RouteRequest = {
@@ -526,9 +526,10 @@ Layout (mobile-adapted from the web screenshot):
    location when available), a swap button between them, and a leading dot/pin icon per
    row (matches the web's green/red endpoint dots).
 3. Mode row directly under the From/To card: `SegmentedControl` for
-   Drive/Okada/Walk/Bike, plus a separate "Transit" toggle button (transit is a distinct
+   Drive/Okada/Walk/Bike/Truck, plus a separate "Transit" toggle button (transit is a distinct
    request path, not a `SegmentedControl` option, since it hits a different endpoint with
-   a different request/response shape).
+   a different request/response shape). `truck` is a real costing profile server-side, not
+   an alias for `driving` — the two return different geometry and duration.
 4. An options row/sheet: narration (`SegmentedControl`: Street/Landmark/Both), "Avoid
    flood-prone roads" toggle, "Avoid locations" (chips + long-press-to-add, per the
    Product Scope section above). No Twi toggle until gap #3 is resolved.
